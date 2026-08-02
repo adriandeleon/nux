@@ -1,0 +1,26 @@
+/* Nux — small app-specific styles layered over the AtlantaFX user-agent theme. */
+
+.status-pill {
+    -fx-background-radius: 14;
+    -fx-padding: 5 14 5 14;
+    -fx-font-weight: bold;
+    -fx-text-fill: white;
+}
+
+.status-neutral { -fx-background-color: -color-neutral-emphasis; }
+.status-ok       { -fx-background-color: -color-success-emphasis; }
+.status-warning  { -fx-background-color: -color-warning-emphasis; }
+.status-critical { -fx-background-color: -color-danger-emphasis; }
+
+.model-label {
+    -fx-text-fill: -color-fg-muted;
+    -fx-font-size: 1.1em;
+}
+
+.detail-name {
+    -fx-text-fill: -color-fg-muted;
+}
+
+.detail-value {
+    -fx-font-weight: bold;
+}

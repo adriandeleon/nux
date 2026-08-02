@@ -1,0 +1,77 @@
+# Nux
+
+A simple, powerful, multiplatform **NUT (Network UPS Tools) client** in JavaFX
+(*nux* = Latin "nut"). Pure network client speaking the NUT protocol (TCP 3493)
+directly to `upsd` — no drivers, no native code, no external tools required at
+runtime. JDK 25 + JavaFX 26 + Maven, modular (JPMS, module `com.nux`).
+
+## Commands
+
+- Run the app: `mvn javafx:run`
+- Run tests: `mvn test` (pure-logic only; no FX toolkit needed)
+- Native package: `mvn -Pdist package` → portable app image in `target/dist/Nux/`
+  (launcher `bin/Nux`); installers via `-Djpackage.type=DEB|RPM|DMG|PKG|MSI|EXE`.
+  All dependencies are real JPMS modules, so jlink links directly — **no moditect,
+  no jar surgery** (keep it that way when adding dependencies).
+- Regenerate the icon: `java scripts/gen_icon.java` (headless Java2D; writes
+  `branding/nux-*.png` + the window icons under `src/main/resources/com/nux/icons/`).
+  The vector source of truth is `branding/nux.svg` — keep both in sync.
+
+## Architecture
+
+- `com.nux.protocol` — **pure, unit-tested core** (no JavaFX, no I/O except
+  `NutClient`): `NutParser` (quote/escape-aware tokenizer + line parsers),
+  `UpsStatus` (flag decoding → label + OK/WARNING/CRITICAL severity; unknown
+  status is never OK), `StatusTransitions` (poll-to-poll alert detection,
+  severity-ordered), `UpsSnapshot` (one `LIST VAR` poll with `Optional`-typed
+  numeric accessors — UPS values are strings and cheap units report junk, so
+  nothing trusts a parse), `NutClient` (blocking socket; every read bounded by
+  the socket timeout; STARTTLS upgrade reads the pre-TLS reply **unbuffered** so
+  no handshake bytes are stolen), `TlsMode`.
+- `com.nux.config` — pure `Config`/`Profile` records with withers +
+  `ConfigStore` (properties file at `~/.nux/config.properties`, atomic
+  temp+move writes, defaults on missing/malformed — never throws on load).
+- `com.nux.service` — `PollService` (ONE daemon thread owns the `NutClient`;
+  polls every 5 s, posts to the FX thread via `Platform.runLater` under a
+  monotonically-increasing **generation guard** so stale results are dropped;
+  reconnects each tick, the poll interval doubling as backoff; `runInstCmd`
+  runs on the same thread/connection so auth state stays accurate — upsd allows
+  one USERNAME per connection, and a half-failed auth drops the connection so
+  the next tick reconnects clean), `History` (NaN-tolerant sparkline ring
+  buffer), `Notifier` (best-effort OS notifications off-thread: notify-send →
+  gdbus fallback on Linux, osascript on macOS; failures swallowed).
+- `com.nux.ui` + `com.nux.App` — the JavaFX layer: `Dashboard`, `ArcGauge` +
+  `Sparkline` (Canvas), `CredentialsDialog`. AtlantaFX (PrimerDark) is the
+  user-agent stylesheet; app styles in `resources/com/nux/nux.css` use
+  AtlantaFX `-color-*` semantic variables where possible.
+
+## Conventions
+
+- **Pure core first**: protocol/config/decision logic lives in toolkit-free
+  classes with unit tests (canned `upsd` transcript strings — no UPS, no
+  network, no FX in tests). UI classes stay thin.
+- **Never block the FX thread**: sockets and subprocesses run on named daemon
+  threads (`nux-poll`, `nux-notify`); results marshal back via
+  `Platform.runLater` with the generation guard.
+- Credentials are session-only, never persisted. The TLS trust-all mode is a
+  config-file-only escape hatch (`tlsTrustAll`) — deliberately no UI for it.
+- Surefire runs tests on the **classpath** (`useModulePath=false`).
+- Versions: `jpackage.appVersion` in the pom must stay a plain dotted number
+  (jpackage rejects `-SNAPSHOT`).
+
+## NUT protocol notes
+
+Line-based text over TCP 3493. Requests like `LIST VAR <ups>`; replies
+`BEGIN LIST` … `VAR <ups> <name> "<value>"` … `END LIST`; errors are
+`ERR <CODE>`. Values are double-quoted with `\"`/`\\` escapes. Auth is
+`USERNAME`/`PASSWORD` then `INSTCMD` (needs an `instcmds` entry in the
+server's `upsd.users`). `STARTTLS` upgrades to TLS when upsd has `CERTFILE`.
+`ups.status` is space-separated flags: OL (online), OB (on battery), LB (low
+battery), CHRG/DISCHRG, RB (replace battery), FSD (forced shutdown), BYPASS,
+OVER, OFF, ALARM.
+
+## Roadmap pointers
+
+See README. Deferred deliberately: tray icon (AWT SystemTray is unsupported on
+Wayland/GNOME and mixing AWT into the FX process is flaky — needs an SNI/D-Bus
+approach), Windows toast notifications, release CI.
