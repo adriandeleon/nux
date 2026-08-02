@@ -45,3 +45,9 @@ All notable changes to Nux are documented here. The format follows
   notifications continue); Quit Nux in the tray menu exits. Disable with
   `closeToTray=false`.
 - Tray charge text is measured and shrunk to fit, so "100" no longer clips.
+- Platform installer icons: `scripts/gen_icon.java` now also emits `nux.ico`
+  (Windows) and `nux.icns` (macOS) — pure-Java ICO/ICNS writers with embedded
+  PNGs; OS-activated Maven profiles pick the right format for jpackage.
+- Release CI: a `v*` tag builds DEB/RPM/DMG/MSI across a 5-runner matrix and
+  publishes a GitHub release with checksums; `ci.yml` runs the tests on every
+  push.

@@ -118,7 +118,10 @@ server, which is why there's deliberately no UI checkbox for it.
       SNI tooltips (KDE shows them)
 - [x] Close-to-tray (window close hides; tray-menu Quit exits;
       `closeToTray=false` restores plain close-means-quit)
-- [ ] Release CI (per-platform installers)
+- [x] Release CI: a `v*` tag builds DEB/RPM (Linux x64), DEB (Linux arm64),
+      DMG (macOS x64 + arm64), MSI (Windows) and attaches them, with
+      checksums, to a GitHub release (`.github/workflows/release.yml`;
+      installers are unsigned — signing/notarization is a follow-up)
 - [ ] Windows toast notifications
 
 ## License

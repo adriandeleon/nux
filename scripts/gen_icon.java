@@ -1,10 +1,12 @@
-// Generates the Nux app icon (a hex nut with a lightning bolt) as PNGs, headlessly,
-// with nothing but the JDK. Run from the repo root:
+// Generates the Nux app icon (a hex nut with a lightning bolt) headlessly, with
+// nothing but the JDK. Run from the repo root:
 //
 //   java scripts/gen_icon.java
 //
-// Writes branding/nux-<size>.png (16..512, the 512 doubles as the jpackage Linux icon
-// via branding/nux.png) and copies the window sizes into src/main/resources/com/nux/icons/.
+// Writes branding/nux-<size>.png (16..512; nux.png = the jpackage Linux icon), copies
+// the window sizes into src/main/resources/com/nux/icons/, and emits the platform
+// installer icons branding/nux.ico (Windows) + branding/nux.icns (macOS) — both
+// formats accept embedded PNGs, so no external tool is needed.
 // The vector source of truth is branding/nux.svg — keep the two in sync when redesigning.
 
 import java.awt.BasicStroke;
@@ -16,9 +18,12 @@ import java.awt.geom.Ellipse2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import javax.imageio.ImageIO;
 
 void main() throws Exception {
@@ -29,17 +34,93 @@ void main() throws Exception {
     Files.createDirectories(branding);
     Files.createDirectories(resourceDir);
 
+    Map<Integer, byte[]> pngs = new LinkedHashMap<>();
     for (int size : sizes) {
         BufferedImage image = render(size);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", bytes);
+        pngs.put(size, bytes.toByteArray());
         Path out = branding.resolve("nux-" + size + ".png");
-        ImageIO.write(image, "png", out.toFile());
+        Files.write(out, bytes.toByteArray());
         if (size <= 256) {
             Files.copy(out, resourceDir.resolve("nux-" + size + ".png"), StandardCopyOption.REPLACE_EXISTING);
         }
         System.out.println("wrote " + out);
     }
     Files.copy(branding.resolve("nux-512.png"), branding.resolve("nux.png"), StandardCopyOption.REPLACE_EXISTING);
-    System.out.println("wrote branding/nux.png (jpackage icon)");
+    System.out.println("wrote branding/nux.png (jpackage Linux icon)");
+
+    Files.write(branding.resolve("nux.ico"), ico(pngs, 16, 32, 64, 256));
+    System.out.println("wrote branding/nux.ico (jpackage Windows icon)");
+    Files.write(branding.resolve("nux.icns"), icns(pngs));
+    System.out.println("wrote branding/nux.icns (jpackage macOS icon)");
+}
+
+/** ICO container with PNG-compressed entries (supported since Windows Vista). Little-endian. */
+byte[] ico(Map<Integer, byte[]> pngs, int... sizes) {
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    le16(out, 0); // reserved
+    le16(out, 1); // type: icon
+    le16(out, sizes.length);
+    int offset = 6 + 16 * sizes.length;
+    for (int size : sizes) {
+        byte[] png = pngs.get(size);
+        out.write(size >= 256 ? 0 : size); // 0 means 256
+        out.write(size >= 256 ? 0 : size);
+        out.write(0); // palette colors
+        out.write(0); // reserved
+        le16(out, 1); // planes
+        le16(out, 32); // bits per pixel
+        le32(out, png.length);
+        le32(out, offset);
+        offset += png.length;
+    }
+    for (int size : sizes) {
+        out.writeBytes(pngs.get(size));
+    }
+    return out.toByteArray();
+}
+
+/** ICNS container with PNG entries. Big-endian; each chunk is 4CC + length (incl. 8-byte header). */
+byte[] icns(Map<Integer, byte[]> pngs) {
+    Map<String, Integer> types = new LinkedHashMap<>();
+    types.put("icp4", 16);
+    types.put("icp5", 32);
+    types.put("icp6", 64);
+    types.put("ic07", 128);
+    types.put("ic08", 256);
+    types.put("ic09", 512);
+    ByteArrayOutputStream body = new ByteArrayOutputStream();
+    for (Map.Entry<String, Integer> e : types.entrySet()) {
+        byte[] png = pngs.get(e.getValue());
+        body.writeBytes(e.getKey().getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        be32(body, png.length + 8);
+        body.writeBytes(png);
+    }
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    out.writeBytes("icns".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+    be32(out, body.size() + 8);
+    out.writeBytes(body.toByteArray());
+    return out.toByteArray();
+}
+
+void le16(ByteArrayOutputStream out, int v) {
+    out.write(v & 0xFF);
+    out.write((v >>> 8) & 0xFF);
+}
+
+void le32(ByteArrayOutputStream out, int v) {
+    out.write(v & 0xFF);
+    out.write((v >>> 8) & 0xFF);
+    out.write((v >>> 16) & 0xFF);
+    out.write((v >>> 24) & 0xFF);
+}
+
+void be32(ByteArrayOutputStream out, int v) {
+    out.write((v >>> 24) & 0xFF);
+    out.write((v >>> 16) & 0xFF);
+    out.write((v >>> 8) & 0xFF);
+    out.write(v & 0xFF);
 }
 
 BufferedImage render(int size) {
