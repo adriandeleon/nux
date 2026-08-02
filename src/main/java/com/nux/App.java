@@ -44,6 +44,9 @@ import com.nux.protocol.UpsSnapshot;
 import com.nux.protocol.UpsStatus;
 import com.nux.service.Notifier;
 import com.nux.service.PollService;
+import com.nux.tray.NuxTray;
+import com.nux.tray.TrayDisplay;
+import com.nux.tray.Trays;
 import com.nux.ui.CredentialsDialog;
 import com.nux.ui.Dashboard;
 
@@ -73,6 +76,9 @@ public final class App extends Application {
     private boolean commLost; // a "lost contact" notification was sent and not yet cleared
     private String authUser; // session-cached upsd credentials for INSTCMD
     private String authPass;
+    private NuxTray tray;
+    private TrayDisplay lastTrayDisplay;
+    private String lastTrayTooltip;
 
     @Override
     public void start(Stage stage) {
@@ -128,6 +134,7 @@ public final class App extends Application {
         }
         stage.show();
 
+        initTray(stage);
         if (config.autoConnect() && !config.lastHost().isBlank()) {
             connect();
         }
@@ -135,7 +142,54 @@ public final class App extends Application {
 
     @Override
     public void stop() {
+        if (tray != null) {
+            tray.dispose();
+        }
         poll.shutdown();
+        // Tray backends leave non-daemon threads behind (AWT EDT, D-Bus workers); with
+        // implicit exit disabled, make process death unconditional once FX shuts down.
+        System.exit(0);
+    }
+
+    // --- Tray icon ------------------------------------------------------------
+
+    /** Backend creation touches D-Bus/AWT and may block briefly, so it runs off the FX thread. */
+    private void initTray(Stage stage) {
+        if (!config.tray()) {
+            return;
+        }
+        Runnable activate = () -> javafx.application.Platform.runLater(() -> {
+            stage.setIconified(false);
+            stage.show();
+            stage.toFront();
+            stage.requestFocus();
+        });
+        Runnable quit = () -> javafx.application.Platform.runLater(javafx.application.Platform::exit);
+        Thread init = new Thread(
+                () -> Trays.create(activate, quit).ifPresent(created -> javafx.application.Platform.runLater(() -> {
+                    tray = created;
+                    pushTray(TrayDisplay.disconnected(), "Nux — not connected");
+                    if (config.closeToTray()) {
+                        // Closing the window hides to the tray; "Quit Nux" in the tray menu exits.
+                        javafx.application.Platform.setImplicitExit(false);
+                        stage.setOnCloseRequest(e -> {
+                            e.consume();
+                            stage.hide();
+                        });
+                    }
+                })),
+                "nux-tray-init");
+        init.setDaemon(true);
+        init.start();
+    }
+
+    private void pushTray(TrayDisplay display, String tooltip) {
+        if (tray == null || (display.equals(lastTrayDisplay) && tooltip.equals(lastTrayTooltip))) {
+            return;
+        }
+        lastTrayDisplay = display;
+        lastTrayTooltip = tooltip;
+        tray.update(display, tooltip);
     }
 
     private void wirePollService() {
@@ -216,6 +270,7 @@ public final class App extends Application {
             Notifier.send(alert.title(), alert.message(), alert.critical());
         }
         lastStatus = status;
+        pushTray(TrayDisplay.of(snapshot), TrayDisplay.tooltip(snapshot));
     }
 
     private void onCommands(List<String> commands) {
@@ -231,6 +286,7 @@ public final class App extends Application {
     private void onDisconnected(String reason) {
         dashboard.showDisconnected(reason);
         commandsButton.setDisable(true);
+        pushTray(TrayDisplay.disconnected(), "Nux — disconnected");
         if (running && !commLost) {
             commLost = true;
             Notifier.send("Nux", "Lost contact with the NUT server: " + reason, false);

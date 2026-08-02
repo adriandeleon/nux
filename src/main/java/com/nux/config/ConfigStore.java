@@ -32,6 +32,8 @@ public final class ConfigStore {
         boolean lastTls = Boolean.parseBoolean(p.getProperty("lastTls", "false"));
         boolean tlsTrustAll = Boolean.parseBoolean(p.getProperty("tlsTrustAll", "false"));
         boolean autoConnect = Boolean.parseBoolean(p.getProperty("autoConnect", "false"));
+        boolean tray = Boolean.parseBoolean(p.getProperty("tray", "true"));
+        boolean closeToTray = Boolean.parseBoolean(p.getProperty("closeToTray", "true"));
 
         List<Profile> profiles = new ArrayList<>();
         for (String rawName : p.getProperty("profiles", "").split(",")) {
@@ -49,7 +51,8 @@ public final class ConfigStore {
             boolean tls = Boolean.parseBoolean(p.getProperty(prefix + "tls", "false"));
             profiles.add(new Profile(name, host, port, ups, tls));
         }
-        return new Config(List.copyOf(profiles), lastHost, lastPort, lastUps, lastTls, tlsTrustAll, autoConnect);
+        return new Config(
+                List.copyOf(profiles), lastHost, lastPort, lastUps, lastTls, tlsTrustAll, autoConnect, tray, closeToTray);
     }
 
     public static Properties format(Config c) {
@@ -61,6 +64,8 @@ public final class ConfigStore {
         p.setProperty("lastTls", Boolean.toString(c.lastTls()));
         p.setProperty("tlsTrustAll", Boolean.toString(c.tlsTrustAll()));
         p.setProperty("autoConnect", Boolean.toString(c.autoConnect()));
+        p.setProperty("tray", Boolean.toString(c.tray()));
+        p.setProperty("closeToTray", Boolean.toString(c.closeToTray()));
         StringJoiner names = new StringJoiner(",");
         for (Profile profile : c.profiles()) {
             names.add(profile.name());

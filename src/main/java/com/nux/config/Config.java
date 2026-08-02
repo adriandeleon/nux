@@ -15,10 +15,12 @@ public record Config(
         String lastUps,
         boolean lastTls,
         boolean tlsTrustAll,
-        boolean autoConnect) {
+        boolean autoConnect,
+        boolean tray,
+        boolean closeToTray) {
 
     public static Config defaults() {
-        return new Config(List.of(), "localhost", NutClient.DEFAULT_PORT, "", false, false, false);
+        return new Config(List.of(), "localhost", NutClient.DEFAULT_PORT, "", false, false, false, true, true);
     }
 
     public Optional<Profile> profile(String name) {
@@ -34,11 +36,11 @@ public record Config(
     }
 
     public Config withLast(String host, int port, String ups, boolean tls) {
-        return new Config(profiles, host, port, ups == null ? "" : ups, tls, tlsTrustAll, autoConnect);
+        return new Config(profiles, host, port, ups == null ? "" : ups, tls, tlsTrustAll, autoConnect, tray, closeToTray);
     }
 
     public Config withAutoConnect(boolean auto) {
-        return new Config(profiles, lastHost, lastPort, lastUps, lastTls, tlsTrustAll, auto);
+        return new Config(profiles, lastHost, lastPort, lastUps, lastTls, tlsTrustAll, auto, tray, closeToTray);
     }
 
     /** Adds the profile, replacing any existing one of the same name. */
@@ -46,12 +48,12 @@ public record Config(
         List<Profile> next = new ArrayList<>(profiles);
         next.removeIf(p -> p.name().equals(profile.name()));
         next.add(profile);
-        return new Config(List.copyOf(next), lastHost, lastPort, lastUps, lastTls, tlsTrustAll, autoConnect);
+        return new Config(List.copyOf(next), lastHost, lastPort, lastUps, lastTls, tlsTrustAll, autoConnect, tray, closeToTray);
     }
 
     public Config withProfileRemoved(String name) {
         List<Profile> next = new ArrayList<>(profiles);
         next.removeIf(p -> p.name().equals(name));
-        return new Config(List.copyOf(next), lastHost, lastPort, lastUps, lastTls, tlsTrustAll, autoConnect);
+        return new Config(List.copyOf(next), lastHost, lastPort, lastUps, lastTls, tlsTrustAll, autoConnect, tray, closeToTray);
     }
 }

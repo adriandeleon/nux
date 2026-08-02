@@ -32,3 +32,16 @@ All notable changes to Nux are documented here. The format follows
   app image (installers via `-Djpackage.type=DEB|RPM|DMG|PKG|MSI|EXE`).
 - App icon (hex nut + lightning bolt), generated headlessly from
   `scripts/gen_icon.java`; vector source `branding/nux.svg`.
+- Tray icon showing charge % (bolt glyph when unknown), colored by severity,
+  with a live tooltip; click restores the window. Linux uses a pure-Java
+  StatusNotifierItem over D-Bus (dbus-java — KDE native, GNOME via the
+  AppIndicator extension, Wayland OK, re-registers after shell restarts);
+  Windows/macOS use AWT. Disable with `tray=false` in the config.
+- Tray context menu (native on every platform): a live status line — which also
+  covers GNOME never rendering SNI tooltips — plus Open Nux and Quit Nux. On
+  Linux this is a full com.canonical.dbusmenu implementation; AWT uses a
+  PopupMenu.
+- Close-to-tray: closing the window hides Nux to the tray (polling and
+  notifications continue); Quit Nux in the tray menu exits. Disable with
+  `closeToTray=false`.
+- Tray charge text is measured and shrunk to fit, so "100" no longer clips.

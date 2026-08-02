@@ -40,6 +40,31 @@ runtime. JDK 25 + JavaFX 26 + Maven, modular (JPMS, module `com.nux`).
   the next tick reconnects clean), `History` (NaN-tolerant sparkline ring
   buffer), `Notifier` (best-effort OS notifications off-thread: notify-send →
   gdbus fallback on Linux, osascript on macOS; failures swallowed).
+- `com.nux.tray` — the tray icon (see `docs/tray-icon-research.md`). `Trays`
+  picks a backend at runtime: Linux → `SniTray` (a pure-Java StatusNotifierItem
+  exported on the D-Bus session bus via dbus-java; fails fast when no
+  `org.kde.StatusNotifierWatcher` exists, re-registers on shell restart via a
+  NameOwnerChanged handler) with AWT fallback; Windows/macOS → `AwtTray`
+  (EDT-marshaled, multi-resolution images). Both render through
+  `TrayIconRenderer` from the pure `TrayDisplay` (charge % text or bolt,
+  severity color; value-equality lets `App.pushTray` skip redundant repaints).
+  The tray menu is a full `com.canonical.dbusmenu` implementation (`SniMenu` +
+  the pure `SniMenuModel`) on Linux and an AWT `PopupMenu` elsewhere; its first
+  item is a disabled live status line — deliberate, because GNOME's
+  AppIndicator extension renders SNI menus but **not** SNI tooltips.
+  **Gotchas (all found against the live bus):** (1) `Properties.Get` must
+  return the stored `Variant` itself, never `getValue()` — a raw
+  `List<Struct>` can't be re-wrapped (erased generics), which broke
+  `Get("IconPixmap")` while `GetAll` worked. (2) A dbus-java `Tuple` subclass
+  must be **generic** (`MenuPair<A,B>`) — the D-Bus signature is derived from
+  the exporting method's generic return type, and a non-generic tuple with
+  concrete `List` fields makes the whole object non-exportable ("Exporting
+  non-exportable type: interface java.util.List"), which silently dropped the
+  SNI backend to the unreadable AWT/XEmbed fallback. Backend creation runs off
+  the FX thread (`nux-tray-init`). Config keys `tray` + `closeToTray` (both
+  default true): with a tray, window close hides (`implicitExit(false)`);
+  `stop()` ends with `System.exit(0)` so leftover AWT/D-Bus non-daemon threads
+  can't keep a quit JVM alive.
 - `com.nux.ui` + `com.nux.App` — the JavaFX layer: `Dashboard`, `ArcGauge` +
   `Sparkline` (Canvas), `CredentialsDialog`. AtlantaFX (PrimerDark) is the
   user-agent stylesheet; app styles in `resources/com/nux/nux.css` use

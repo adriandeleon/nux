@@ -108,9 +108,18 @@ server, which is why there's deliberately no UI checkbox for it.
 - [x] STARTTLS (verified by default; `tlsTrustAll` config escape hatch)
 - [x] jpackage native packaging (`-Pdist`, APP_IMAGE/DEB/RPM/DMG/MSI)
 - [x] App icon (`branding/nux.svg`, PNGs via `java scripts/gen_icon.java`)
-- [ ] Tray icon with charge % (Windows toast notifications too) — needs a
-      story for Wayland/GNOME, where AWT SystemTray is unsupported
+- [x] Tray icon with charge % — SNI (StatusNotifierItem over D-Bus) on Linux
+      (KDE native; GNOME via the AppIndicator extension; Wayland OK), AWT on
+      Windows/macOS; click restores the window (see
+      `docs/tray-icon-research.md`; disable with `tray=false` in the config)
+- [x] Tray context menu (com.canonical.dbusmenu on Linux, AWT PopupMenu
+      elsewhere): live status line + Open + Quit. The status line also stands
+      in for the tooltip on GNOME, whose AppIndicator extension doesn't render
+      SNI tooltips (KDE shows them)
+- [x] Close-to-tray (window close hides; tray-menu Quit exits;
+      `closeToTray=false` restores plain close-means-quit)
 - [ ] Release CI (per-platform installers)
+- [ ] Windows toast notifications
 
 ## License
 
