@@ -4,7 +4,9 @@ All notable changes to Nux are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.0] - 2026-08-02
+
+First release.
 
 ### Added
 
