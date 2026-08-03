@@ -11,6 +11,15 @@ All notable changes to Nux are documented here. The format follows
 - `AUTHORS`, `NOTICE` (third-party components and their licenses), `TODO.md`,
   and an `.editorconfig`.
 - Maven wrapper (`./mvnw`), so a clone needs only a JDK.
+- Start at login (Settings → Tray, and a palette command): an XDG autostart
+  entry on Linux, a per-user LaunchAgent on macOS, and an `HKCU\…\Run` value
+  on Windows. Available only in an installed build — the OS holds the state,
+  so there is no config key to drift out of sync. With the tray enabled the
+  entry adds `--minimized` so Nux comes up in the tray; that flag is ignored
+  when no tray is available, so the window can never start unreachable.
+- `--screenshot=<file>` saves the window as a PNG a few seconds after start,
+  for documentation and bug reports.
+- README screenshot.
 
 ### Changed
 
