@@ -122,6 +122,21 @@ runtime. JDK 25 + JavaFX 26 + Maven, modular (JPMS, module `com.nux`).
   with checksums. The per-OS jpackage icon (`png`/`ico`/`icns`, all emitted by
   `scripts/gen_icon.java`) is picked by OS-activated `os-*` Maven profiles.
 
+## Why not jNut?
+
+The NUT project ships an official Java client
+([networkupstools/jNut](https://github.com/networkupstools/jNut), actively
+maintained). It was evaluated and deliberately not adopted: it is **not on
+Maven Central** (its README states there is no `release:perform`, so it would
+have to be vendored or built in CI), it has **no `module-info.java`** (an
+automatic module, which would drag moditect into the currently ceremony-free
+jlink build), and it is GPL-2.0 — workable only because of its Classpath
+Exception. Our ~300-line client is shaped for this app (Optional-typed
+accessors, severity, client-side RW validation, generation-guarded async) and
+is well covered by tests. **Command TRACKING was taken from jNut as an idea
+and reimplemented**; revisit the dependency only if Nux ever needs broad
+protocol coverage, or if jNut publishes a modular artifact.
+
 ## NUT protocol notes
 
 Line-based text over TCP 3493. Requests like `LIST VAR <ups>`; replies
@@ -129,6 +144,15 @@ Line-based text over TCP 3493. Requests like `LIST VAR <ups>`; replies
 `ERR <CODE>`. Values are double-quoted with `\"`/`\\` escapes. Auth is
 `USERNAME`/`PASSWORD` then `INSTCMD` (needs an `instcmds` entry in the
 server's `upsd.users`). `STARTTLS` upgrades to TLS when upsd has `CERTFILE`.
+**Tracking (NUT 2.8):** `SET TRACKING ON` **must follow authentication** —
+upsd answers `ERR USERNAME-REQUIRED` otherwise (verified against a live 2.8
+server). With it on, `INSTCMD`/`SET VAR` reply `OK TRACKING <id>` and
+`GET TRACKING <id>` yields `PENDING` / `SUCCESS` / `ERR <code>`. Only a
+driver-reported code counts as a failure: `UNKNOWN` and
+`FEATURE-NOT-CONFIGURED` mean the server cannot answer, and reporting those
+as failures would blame the command for the server's bookkeeping. Tracking is
+polled via `executor.schedule`, never by sleeping, so the 5-second
+measurement poll keeps its cadence.
 `ups.status` is space-separated flags: OL (online), OB (on battery), LB (low
 battery), CHRG/DISCHRG, RB (replace battery), FSD (forced shutdown), BYPASS,
 OVER, OFF, ALARM.

@@ -83,3 +83,12 @@ All notable changes to Nux are documented here. The format follows
   credentials have been entered this session — they are never stored on disk.
 - Multi-UPS overview: on a server with several UPSes, a strip of status cards
   appears above the gauges; click one to switch the dashboard to it.
+- Command tracking (NUT 2.8): instant commands and variable writes now report
+  what the UPS actually did, not merely that upsd accepted the request. The
+  tracking id is polled on the shared scheduler, so waiting never stalls the
+  measurement poll; servers without tracking (or with it switched off) fall
+  back to the previous accept-only behaviour automatically.
+- LAN discovery: "Find servers…" in Settings (and a command-palette entry)
+  scans the machine's own IPv4 subnets for NUT servers, confirming each hit
+  with a real `LIST UPS` exchange before listing it. Ranges wider than a /22
+  are refused so discovery can never become an unbounded sweep.

@@ -18,6 +18,7 @@ import com.nux.protocol.NutClient;
 import com.nux.protocol.NutException;
 import com.nux.protocol.RwVariable;
 import com.nux.protocol.TlsMode;
+import com.nux.protocol.Tracking;
 import com.nux.protocol.UpsDevice;
 import com.nux.protocol.UpsSnapshot;
 
@@ -36,6 +37,9 @@ public final class PollService {
 
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
     private static final long POLL_SECONDS = 5;
+    /** Tracking polls: 10 × 700 ms ≈ 7 s, comfortably longer than a driver takes to answer. */
+    private static final int TRACKING_ATTEMPTS = 10;
+    private static final long TRACKING_INTERVAL_MS = 700;
 
     private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "nux-poll");
@@ -50,6 +54,7 @@ public final class PollService {
     private boolean wasConnected;
     private String authedUser; // non-null once USERNAME/PASSWORD succeeded on this connection
     private String cmdTarget; // the UPS whose command list was last fetched and announced
+    private Boolean trackingEnabled; // null = not yet asked on this connection
     private List<UpsDevice> devices = List.of();
 
     // FX-thread confined:
@@ -151,8 +156,14 @@ public final class PollService {
                     fxResult(onResult, false, "Already authenticated as " + authedUser + " — reconnect to switch user");
                     return;
                 }
-                action.run(client);
-                fxResult(onResult, true, "OK");
+                enableTrackingOnce();
+                String trackingId = action.run(client);
+                if (trackingId.isEmpty()) {
+                    // Pre-2.8 server (or tracking refused): OK is the whole answer we get.
+                    fxResult(onResult, true, "OK");
+                } else {
+                    scheduleTrackingCheck(gen, trackingId, TRACKING_ATTEMPTS, onResult);
+                }
             } catch (NutException e) {
                 // A half-done auth (USERNAME ok, PASSWORD refused) poisons the connection;
                 // drop it so the next tick reconnects clean.
@@ -165,8 +176,55 @@ public final class PollService {
         });
     }
 
+    /** Asks for tracking once per connection; a refusal is remembered, not retried. */
+    private void enableTrackingOnce() throws IOException {
+        if (trackingEnabled == null) {
+            trackingEnabled = client.enableTracking();
+        }
+    }
+
+    /**
+     * Polls a tracking id on the shared scheduler rather than sleeping, so waiting for a
+     * command's real outcome never stalls the 5-second measurement poll.
+     */
+    private void scheduleTrackingCheck(long gen, String id, int attemptsLeft, BiConsumer<Boolean, String> onResult) {
+        executor.schedule(
+                () -> {
+                    if (gen != generation || client == null) {
+                        fxResult(onResult, false, "Not connected");
+                        return;
+                    }
+                    Tracking.Result result;
+                    try {
+                        result = client.trackingResult(id);
+                    } catch (IOException e) {
+                        dropConnection();
+                        fxResult(onResult, false, e.getMessage() != null ? e.getMessage() : "tracking failed");
+                        return;
+                    }
+                    switch (result.status()) {
+                        case SUCCESS -> fxResult(onResult, true, "OK");
+                        case FAILED -> fxResult(onResult, false, result.detail());
+                        // An unknown id means the server dropped the record; the command was
+                        // still accepted, so report the accept rather than inventing a failure.
+                        case UNKNOWN -> fxResult(onResult, true, "OK (not tracked)");
+                        case PENDING -> {
+                            if (attemptsLeft > 1) {
+                                scheduleTrackingCheck(gen, id, attemptsLeft - 1, onResult);
+                            } else {
+                                fxResult(onResult, false, "still pending after "
+                                        + (TRACKING_ATTEMPTS * TRACKING_INTERVAL_MS / 1000) + "s");
+                            }
+                        }
+                    }
+                },
+                TRACKING_INTERVAL_MS,
+                TimeUnit.MILLISECONDS);
+    }
+
     private interface ClientAction {
-        void run(NutClient client) throws IOException;
+        /** Returns the tracking id, or "" when the connection isn't tracking. */
+        String run(NutClient client) throws IOException;
     }
 
     private void tick(long gen, String host, int port, String ups, TlsMode tls) {
@@ -238,6 +296,7 @@ public final class PollService {
         }
         authedUser = null;
         cmdTarget = null;
+        trackingEnabled = null;
     }
 
     private void fx(long gen, Runnable action) {

@@ -66,6 +66,7 @@ import com.nux.tray.Trays;
 import com.nux.ui.CommandPalette;
 import com.nux.ui.CredentialsDialog;
 import com.nux.ui.Dashboard;
+import com.nux.ui.DiscoveryWindow;
 import com.nux.ui.EventsWindow;
 import com.nux.ui.HistoryWindow;
 import com.nux.ui.SettingsWindow;
@@ -230,6 +231,7 @@ public final class App extends Application {
         registry.register("app.events", "Show event log…", this::openEvents);
         registry.register("app.variables", "Edit UPS settings (writable variables)…", this::openVariables);
         registry.register("app.selfTest", "Run battery self-test now", this::runSelfTestNow);
+        registry.register("app.discover", "Find NUT servers on the network…", this::openDiscovery);
         registry.register("app.quit", "Quit Nux", Platform::exit);
         for (TrayMetric metric : TrayMetric.values()) {
             registry.register(
@@ -432,6 +434,26 @@ public final class App extends Application {
 
     private void openEvents() {
         EventsWindow.show(stage, events);
+    }
+
+    /** Picking a discovered server points the connection at it and reconnects if running. */
+    private void openDiscovery() {
+        DiscoveryWindow.show(stage, (host, port) -> {
+            saveConfig(config.withLast(host, port, "", config.lastTls()));
+            refreshConnLabel();
+            switchingUps = true;
+            try {
+                upsCombo.getItems().clear();
+                upsCombo.setValue(null);
+            } finally {
+                switchingUps = false;
+            }
+            if (running) {
+                startFresh(null);
+            } else {
+                connect();
+            }
+        });
     }
 
     private void openVariables() {

@@ -49,11 +49,13 @@ public final class SettingsWindow {
         tls.setSelected(current.lastTls());
         CheckBox autoConnect = new CheckBox("Connect automatically on launch");
         autoConnect.setSelected(current.autoConnect());
+        Button discover = new Button("Find servers…");
         GridPane connection = grid();
         connection.addRow(0, new Label("Host"), host);
         connection.addRow(1, new Label("Port"), port);
-        connection.add(tls, 0, 2, 2, 1);
-        connection.add(autoConnect, 0, 3, 2, 1);
+        connection.add(discover, 1, 2);
+        connection.add(tls, 0, 3, 2, 1);
+        connection.add(autoConnect, 0, 4, 2, 1);
 
         // --- Tray + notifications
         CheckBox tray = new CheckBox("Show tray icon");
@@ -125,6 +127,10 @@ public final class SettingsWindow {
         tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
 
         Stage stage = new Stage();
+        discover.setOnAction(e -> DiscoveryWindow.show(stage, (foundHost, foundPort) -> {
+            host.setText(foundHost);
+            port.setText(Integer.toString(foundPort));
+        }));
         Button cancel = new Button("Cancel");
         cancel.setOnAction(e -> stage.close());
         Button save = new Button("Save");

@@ -29,8 +29,10 @@ window** (`Ctrl/Cmd+,`) for connection/tray/notification options, a
 Beyond the live view it keeps **persistent history** (charts over the last
 hour to 30 days, with kWh and cost estimates), a **persistent event log**
 (exportable as CSV), **battery age/health** tracking, an editor for the UPS's
-**settable variables** (`upsrw`), **scheduled battery self-tests**, and a
-**multi-UPS overview** for servers with more than one UPS.
+**settable variables** (`upsrw`), **scheduled battery self-tests**, a
+**multi-UPS overview** for servers with more than one UPS, **command
+tracking** (NUT 2.8 — reports what the UPS actually did, not just that the
+request was accepted), and **LAN discovery** of NUT servers.
 
 ## Requirements
 

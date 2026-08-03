@@ -240,9 +240,13 @@ public final class NutClient implements Closeable {
         return null;
     }
 
-    /** Writes a variable (needs auth); the value is quoted so spaces survive. */
-    public void setVar(String ups, String name, String value) throws IOException {
-        expectOk("SET VAR " + ups + " " + name + " \"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"");
+    /**
+     * Writes a variable (needs auth); the value is quoted so spaces survive.
+     * Returns the tracking id when tracking is enabled, else "".
+     */
+    public String setVar(String ups, String name, String value) throws IOException {
+        return Tracking.idOf(expectOk(
+                "SET VAR " + ups + " " + name + " \"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""));
     }
 
     public String getVar(String ups, String name) throws IOException {
@@ -266,12 +270,40 @@ public final class NutClient implements Closeable {
         expectOk("PASSWORD " + password);
     }
 
-    /** Runs an instant command (beeper.toggle, test.battery.start.quick, ...); needs auth. */
-    public void instCmd(String ups, String command) throws IOException {
-        expectOk("INSTCMD " + ups + " " + command);
+    /**
+     * Runs an instant command (beeper.toggle, test.battery.start.quick, ...); needs auth.
+     * Returns the tracking id when the connection has tracking enabled, else "".
+     */
+    public String instCmd(String ups, String command) throws IOException {
+        return Tracking.idOf(expectOk("INSTCMD " + ups + " " + command));
     }
 
-    private void expectOk(String command) throws IOException {
+    /**
+     * Turns on NUT 2.8 command tracking for this connection. Returns false — without
+     * throwing — when the server predates tracking or has it switched off
+     * ({@code ERR FEATURE-NOT-CONFIGURED}), so the caller falls back to treating
+     * {@code OK} as the whole answer. Must be called after authenticating: upsd
+     * answers {@code ERR USERNAME-REQUIRED} otherwise (verified against upsd 2.8).
+     */
+    public boolean enableTracking() throws IOException {
+        send("SET TRACKING ON");
+        String line = readLine();
+        if (NutParser.isErr(line)) {
+            return false;
+        }
+        if (!line.startsWith("OK")) {
+            throw new IOException("Unexpected reply: " + line);
+        }
+        return true;
+    }
+
+    /** Asks what became of a tracked command. */
+    public Tracking.Result trackingResult(String id) throws IOException {
+        send("GET TRACKING " + id);
+        return Tracking.parse(readLine());
+    }
+
+    private String expectOk(String command) throws IOException {
         send(command);
         String line = readLine();
         if (NutParser.isErr(line)) {
@@ -280,6 +312,7 @@ public final class NutClient implements Closeable {
         if (!line.startsWith("OK")) {
             throw new IOException("Unexpected reply: " + line);
         }
+        return line;
     }
 
     private List<String> listBlock(String query) throws IOException {
