@@ -46,9 +46,13 @@ but have never been exercised against real hardware or a real server configurati
 
 ## Engineering
 
-- [ ] FX-level tests. The suite is 100% pure logic today; the UI classes have no
-      coverage at all. A headless-FX harness (as in Editora) would cover the
-      dashboard, tray display wiring, and settings round-trip.
+- [ ] FX-level tests. `com.nux.ui` and `App` still have no coverage (~2000 lines).
+      A headless-FX harness (JavaFX 26's built-in Headless platform, as in Editora)
+      would cover `Dashboard.update`, the settings round-trip (does Save produce the
+      Config you expect?), and command-palette filtering/activation.
+- [ ] The tray backends (`SniTray`, `AwtTray`, `Trays`) are untested — they need a
+      D-Bus session or an AWT tray. `SniMenu.Impl`'s GetLayout/GetGroupProperties/Event
+      logic is plain Java, though, and could be tested without a bus.
 - [ ] Extract the growing `App` class into per-feature coordinators once it passes
       ~700 lines, mirroring Editora's `ui/*Coordinator` split.
 - [ ] Spotless + a formatter, so formatting stops being a matter of habit.

@@ -23,6 +23,23 @@ All notable changes to Nux are documented here. The format follows
 
 ### Changed
 
+- Tests: 107 → 149. The two most consequential classes had no coverage at all;
+  both are now exercised against a scripted in-process upsd
+  (`FakeNutServer`) that asserts both directions — the exact bytes sent and
+  how replies are interpreted. `NutClient` gains 15 tests (command lines,
+  `SET VAR` quote/backslash escaping, `LIST RW` type/enum/range round-trip,
+  `ERR` mapping, tracking id extraction, the pre-2.8 `enableTracking` → false
+  fallback, `LOGOUT` on close); `PollService` gains 12 covering the polling
+  loop, auth-once-per-connection, the refusal to switch user mid-connection,
+  tracking poll/resolve/fail, and the multi-UPS overview. `HistoryStore` and
+  `EventLog` gain file-level tests (downsampling, status-change override,
+  retention pruning, corrupt-line tolerance, size cap).
+- `PollService` takes its UI marshaller as a constructor argument (defaulting
+  to `Platform::runLater`) so its concurrency logic is testable without a
+  JavaFX toolkit.
+- `EventLog` no longer re-reads the whole file on every append to enforce its
+  size cap; it checks every `maxEvents/10` appends instead, trading a bounded
+  overshoot for dropping an O(n) read per event.
 - The jpackage app version is now derived from `project.version` instead of
   being hardcoded (strip `-SNAPSHOT`; on macOS bump a leading `0.` to `1.`,
   which jpackage requires). An explicit `-Djpackage.appVersion` still wins,

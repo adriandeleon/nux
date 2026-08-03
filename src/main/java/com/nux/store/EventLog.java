@@ -22,6 +22,16 @@ public final class EventLog {
     public static final int MAX_EVENTS = 5000;
 
     private final Path file;
+    private final int maxEvents;
+    /**
+     * Trimming reads the whole file, so it runs every {@code maxEvents/10} appends
+     * rather than on each one; the log may overshoot the cap by that much between
+     * checks, which is far cheaper than an O(n) read per event.
+     */
+    private final int trimInterval;
+
+    private int appendsSinceTrim;
+
     private final ExecutorService writer = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "nux-events");
         t.setDaemon(true);
@@ -29,7 +39,13 @@ public final class EventLog {
     });
 
     public EventLog(Path configDir) {
+        this(configDir, MAX_EVENTS);
+    }
+
+    EventLog(Path configDir, int maxEvents) {
         this.file = configDir.resolve("events.csv");
+        this.maxEvents = Math.max(1, maxEvents);
+        this.trimInterval = Math.max(1, this.maxEvents / 10);
     }
 
     public Path file() {
@@ -72,14 +88,29 @@ public final class EventLog {
     }
 
     private void trimIfNeeded() throws IOException {
-        List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
-        if (lines.size() <= MAX_EVENTS) {
+        if (++appendsSinceTrim < trimInterval) {
             return;
         }
-        List<String> kept = lines.subList(lines.size() - MAX_EVENTS, lines.size());
+        appendsSinceTrim = 0;
+        List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+        if (lines.size() <= maxEvents) {
+            return;
+        }
+        List<String> kept = lines.subList(lines.size() - maxEvents, lines.size());
         Path temp = file.resolveSibling(file.getFileName() + ".tmp");
         Files.write(temp, kept, StandardCharsets.UTF_8);
         Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    /** Blocks until queued writes have landed. The writer is a single FIFO thread. */
+    void awaitWrites() {
+        try {
+            writer.submit(() -> {}).get(10, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
+            throw new IllegalStateException("event writer did not settle", e);
+        }
     }
 
     public void shutdown() {

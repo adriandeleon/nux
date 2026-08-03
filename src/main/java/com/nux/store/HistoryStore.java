@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Append-only per-UPS measurement history in {@code <configDir>/history/<ups>.csv}.
@@ -138,6 +139,17 @@ public final class HistoryStore {
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         } catch (IOException e) {
             // history is best-effort; never disturb the UI over it
+        }
+    }
+
+    /** Blocks until queued writes have landed. The writer is a single FIFO thread. */
+    void awaitWrites() {
+        try {
+            writer.submit(() -> {}).get(10, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
+            throw new IllegalStateException("history writer did not settle", e);
         }
     }
 

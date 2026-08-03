@@ -47,6 +47,21 @@ public final class PollService {
         return t;
     });
 
+    /**
+     * How results reach the UI. Injected so the polling, reconnect, auth and tracking
+     * logic can be tested without a JavaFX toolkit; production always marshals to the
+     * FX thread.
+     */
+    private final Consumer<Runnable> ui;
+
+    public PollService() {
+        this(Platform::runLater);
+    }
+
+    PollService(Consumer<Runnable> ui) {
+        this.ui = ui;
+    }
+
     private volatile long generation = 0;
 
     // Poll-thread confined:
@@ -133,7 +148,7 @@ public final class PollService {
                 }
             }
             List<RwVariable> result = vars;
-            Platform.runLater(() -> onResult.accept(result));
+            ui.accept(() -> onResult.accept(result));
         });
     }
 
@@ -300,14 +315,14 @@ public final class PollService {
     }
 
     private void fx(long gen, Runnable action) {
-        Platform.runLater(() -> {
+        ui.accept(() -> {
             if (gen == generation) {
                 action.run();
             }
         });
     }
 
-    private static void fxResult(BiConsumer<Boolean, String> onResult, boolean ok, String message) {
-        Platform.runLater(() -> onResult.accept(ok, message));
+    private void fxResult(BiConsumer<Boolean, String> onResult, boolean ok, String message) {
+        ui.accept(() -> onResult.accept(ok, message));
     }
 }
