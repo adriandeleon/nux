@@ -1,0 +1,59 @@
+Nux
+Copyright (c) 2026 Adrián Arturo De León Saldivar
+
+This product is licensed under the MIT License; see the LICENSE file.
+
+Nux is an independent client for Network UPS Tools. It is not affiliated with,
+endorsed by, or a product of the NUT project. "Network UPS Tools" and "NUT" are
+the property of their respective owners.
+
+
+Third-party components
+======================
+
+Nux bundles or depends on the following third-party software. Each remains
+under its own license.
+
+OpenJFX (JavaFX)
+    https://openjfx.io
+    GNU General Public License, version 2, with the Classpath Exception.
+    Redistributed in the packaged installers as a jlink runtime image.
+
+AtlantaFX
+    https://github.com/mkpaz/atlantafx
+    Copyright (c) mkpaz
+    MIT License.
+
+dbus-java (dbus-java-core, dbus-java-transport-native-unixsocket)
+    https://github.com/hypfvieh/dbus-java
+    Copyright (c) hypfvieh
+    MIT License.
+    Used for the Linux StatusNotifierItem tray icon and its dbusmenu.
+
+SLF4J (slf4j-api, slf4j-jdk14)
+    https://www.slf4j.org
+    Copyright (c) 2004-2024 QOS.ch Sarl (Switzerland)
+    MIT License.
+
+JUnit 5 (test scope only; not redistributed)
+    https://junit.org/junit5/
+    Eclipse Public License 2.0.
+
+
+Protocol and interoperability
+=============================
+
+Nux implements the Network UPS Tools network protocol as documented by the NUT
+project (https://networkupstools.org). The NUT project's own Java client, jNut
+(https://github.com/networkupstools/jNut, GPL-2.0 with Classpath Exception), was
+consulted as a reference while implementing NUT 2.8 command tracking. No jNut
+source code is included in or linked by Nux.
+
+
+Artwork
+=======
+
+The Nux icon (branding/nux.svg and the PNG/ICO/ICNS files generated from it by
+scripts/gen_icon.java) is an original work, copyright (c) 2026 Adrián Arturo
+De León Saldivar, and is covered by the project's MIT License. No third-party
+icon sets or fonts are bundled.

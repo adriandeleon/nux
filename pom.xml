@@ -6,7 +6,7 @@
 
     <groupId>io.github.adriandeleon</groupId>
     <artifactId>nux</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>Nux</name>
@@ -122,8 +122,11 @@
             <id>dist</id>
             <properties>
                 <jpackage.type>APP_IMAGE</jpackage.type>
-                <!-- jpackage rejects non-numeric app versions, so no -SNAPSHOT here. -->
-                <jpackage.appVersion>0.1.0</jpackage.appVersion>
+                <!-- jpackage.appVersion is DERIVED from project.version by the antrun
+                     execution below (jpackage rejects a version containing -SNAPSHOT).
+                     It is deliberately not declared here: a hardcoded default silently
+                     goes stale the first time the project version changes. Passing
+                     -Djpackage.appVersion=… still wins, which is what release CI does. -->
                 <jpackage.resourceDir>${project.build.directory}/jpackage-resources</jpackage.resourceDir>
             </properties>
             <build>
@@ -138,6 +141,48 @@
                         <artifactId>maven-antrun-plugin</artifactId>
                         <version>3.1.0</version>
                         <executions>
+                            <!-- Derive the jpackage app-version from project.version:
+                                 strip -SNAPSHOT, and on macOS bump a leading 0. to 1.
+                                 because jpackage refuses an app-version whose first
+                                 number is zero (it becomes CFBundleVersion). Ant
+                                 properties are immutable and Maven passes -D values in
+                                 first, so an explicit -Djpackage.appVersion always wins. -->
+                            <execution>
+                                <id>derive-jpackage-version</id>
+                                <phase>initialize</phase>
+                                <goals>
+                                    <goal>run</goal>
+                                </goals>
+                                <configuration>
+                                    <exportAntProperties>true</exportAntProperties>
+                                    <target>
+                                        <loadresource property="jpackage.publicVersion">
+                                            <string value="${project.version}"/>
+                                            <filterchain>
+                                                <tokenfilter>
+                                                    <replaceregex pattern="-SNAPSHOT$" replace=""/>
+                                                </tokenfilter>
+                                            </filterchain>
+                                        </loadresource>
+                                        <loadresource property="jpackage.macVersion">
+                                            <string value="${jpackage.publicVersion}"/>
+                                            <filterchain>
+                                                <tokenfilter>
+                                                    <replaceregex pattern="^0\." replace="1."/>
+                                                </tokenfilter>
+                                            </filterchain>
+                                        </loadresource>
+                                        <condition property="jpackage.appVersion" value="${jpackage.macVersion}">
+                                            <and>
+                                                <os family="mac"/>
+                                                <matches string="${jpackage.publicVersion}" pattern="^0\."/>
+                                            </and>
+                                        </condition>
+                                        <property name="jpackage.appVersion" value="${jpackage.publicVersion}"/>
+                                        <echo message="jpackage app-version: ${jpackage.appVersion}"/>
+                                    </target>
+                                </configuration>
+                            </execution>
                             <execution>
                                 <id>stage-jpackage-resources</id>
                                 <phase>prepare-package</phase>

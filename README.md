@@ -2,12 +2,31 @@
 
 <img src="branding/nux.svg" width="96" align="right" alt="Nux icon">
 
-A simple, powerful, multiplatform **NUT (Network UPS Tools) client** in JavaFX.
-*Nux* is Latin for "nut."
+[![CI](https://github.com/adriandeleon/nux/actions/workflows/ci.yml/badge.svg)](https://github.com/adriandeleon/nux/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/adriandeleon/nux)](LICENSE)
+![Java](https://img.shields.io/badge/Java-25-orange?logo=openjdk&logoColor=white)
+![JavaFX](https://img.shields.io/badge/JavaFX-26-1e90ff)
+![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+[![Release](https://img.shields.io/github/v/release/adriandeleon/nux)](https://github.com/adriandeleon/nux/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/adriandeleon/nux/total)](https://github.com/adriandeleon/nux/releases)
+[![Release workflow](https://github.com/adriandeleon/nux/actions/workflows/release.yml/badge.svg)](https://github.com/adriandeleon/nux/actions/workflows/release.yml)
+[![Stars](https://img.shields.io/github/stars/adriandeleon/nux?style=flat)](https://github.com/adriandeleon/nux/stargazers)
 
-Nux is a pure network client: it speaks the NUT protocol (TCP 3493) directly to
-`upsd`, so it runs on Linux, macOS, and Windows without any drivers — the NUT
-server stays wherever the UPS is plugged in.
+A simple, powerful, multiplatform client for
+[**Network UPS Tools**](https://networkupstools.org/) (NUT), built with **JDK 25**,
+**JavaFX 26** and **Maven**. *Nux* is Latin for "nut."
+
+Nux is a pure network client: it speaks the [NUT network
+protocol](https://networkupstools.org/docs/developer-guide.chunked/net-protocol.html)
+(TCP 3493) directly to `upsd`, so it runs on Linux, macOS, and Windows without any
+drivers — the NUT server stays wherever the UPS is plugged in.
+
+Nux is an independent client, not affiliated with or endorsed by the NUT project.
+It is built with the help of AI coding tools.
+
+📥 **Downloads:** [latest release](https://github.com/adriandeleon/nux/releases/latest)
+— `.deb` / `.rpm` (Linux x64 + arm64), `.dmg` (macOS Intel + Apple silicon), `.msi`
+(Windows). Installers are currently unsigned.
 
 ## Status
 
@@ -36,30 +55,44 @@ request was accepted), and **LAN discovery** of NUT servers.
 
 ## Requirements
 
-- JDK 25+, Maven
-- A reachable NUT server (`upsd`)
+- JDK 25+ (the Maven wrapper supplies Maven itself)
+- A reachable [NUT](https://networkupstools.org/) server (`upsd`)
 
 ## Run
 
 ```bash
-mvn javafx:run
+./mvnw javafx:run
 ```
 
 Tests (pure protocol core, no toolkit needed):
 
 ```bash
-mvn test
+./mvnw test
 ```
 
 Native package (jlink runtime + jpackage; all dependencies are real JPMS
-modules, so no moditect ceremony):
+modules, so no moditect ceremony). The app version is derived from the project
+version automatically:
 
 ```bash
-mvn -Pdist package                      # portable app image → target/dist/Nux/
-mvn -Pdist package -Djpackage.type=DEB  # or RPM / DMG / PKG / MSI / EXE
+./mvnw -Pdist package                      # portable app image → target/dist/Nux/
+./mvnw -Pdist package -Djpackage.type=DEB  # or RPM / DMG / PKG / MSI / EXE
+```
+
+On Linux, a run from the source tree has no installed desktop entry, so the
+window shows a generic icon until you register one once:
+
+```bash
+scripts/install-dev-desktop.sh
 ```
 
 ## Setting up the NUT server (Linux, CyberPower over USB)
+
+Nux talks to a NUT server; it does not talk to the UPS itself. If you don't have
+one yet, install NUT from your distribution and see the project's
+[installation guide](https://networkupstools.org/docs/user-manual.chunked/index.html)
+and [hardware compatibility list](https://networkupstools.org/stable-hcl.html).
+A minimal single-machine setup:
 
 ```ini
 # /etc/nut/ups.conf
@@ -135,6 +168,18 @@ server, which is why there's deliberately no UI checkbox for it.
       installers are unsigned — signing/notarization is a follow-up)
 - [ ] Windows toast notifications
 
+## Project files
+
+- [CHANGELOG.md](CHANGELOG.md) — release history
+- [TODO.md](TODO.md) — planned work and known gaps
+- [AUTHORS](AUTHORS) — authors and acknowledgements
+- [NOTICE](NOTICE) — third-party components and their licenses
+- [docs/tray-icon-research.md](docs/tray-icon-research.md) — why the Linux tray
+  is a hand-rolled StatusNotifierItem implementation
+
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) — copyright (c) 2026 Adrián Arturo De León Saldivar.
+
+Nux depends on components under their own licenses (OpenJFX under GPLv2 with the
+Classpath Exception; AtlantaFX, dbus-java and SLF4J under MIT) — see [NOTICE](NOTICE).

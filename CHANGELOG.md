@@ -102,3 +102,21 @@ First release.
   scans the machine's own IPv4 subnets for NUT servers, confirming each hit
   with a real `LIST UPS` exchange before listing it. Ranges wider than a /22
   are refused so discovery can never become an unbounded sweep.
+
+## [Unreleased]
+
+### Added
+
+- `AUTHORS`, `NOTICE` (third-party components and their licenses), `TODO.md`,
+  and an `.editorconfig`.
+- Maven wrapper (`./mvnw`), so a clone needs only a JDK.
+
+### Changed
+
+- The jpackage app version is now derived from `project.version` instead of
+  being hardcoded (strip `-SNAPSHOT`; on macOS bump a leading `0.` to `1.`,
+  which jpackage requires). An explicit `-Djpackage.appVersion` still wins,
+  which is what release CI passes.
+- README: badges, links to the Network UPS Tools project, and download
+  pointers.
+- LICENSE/copyright now carries the author's full name.

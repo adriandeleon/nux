@@ -1,0 +1,26 @@
+Nux — authors and contributors
+==============================
+
+Author and maintainer
+---------------------
+
+Adrián Arturo De León Saldivar <adrian.deleon@gmail.com>
+    Project author and maintainer.
+
+Contributors
+------------
+
+(none yet — contributions welcome; see the repository issues)
+
+Acknowledgements
+----------------
+
+The Network UPS Tools project (https://networkupstools.org) for the NUT
+protocol, the upsd server, and the drivers Nux depends on. Nux is an
+independent client and is not affiliated with or endorsed by the NUT project.
+
+The NUT project's own Java client, jNut (https://github.com/networkupstools/jNut),
+was studied while implementing NUT 2.8 command tracking. No jNut code is used
+in Nux; see CLAUDE.md for why it was evaluated and not adopted as a dependency.
+
+Nux is developed with the assistance of AI coding tools.
