@@ -127,6 +127,21 @@ derives it from the module main class, *not* the app name — verified with
 - **Pure core first**: protocol/config/decision logic lives in toolkit-free
   classes with unit tests (canned `upsd` transcript strings — no UPS, no
   network, no FX in tests). UI classes stay thin.
+- **Three test tiers.** (1) Pure unit tests over the toolkit-free cores.
+  (2) `FakeNutServer` (test-scope, `com.nux.protocol`) — an in-process upsd
+  speaking canned NUT over a loopback socket, so `NutClient` and `PollService`
+  are asserted in both directions: the exact bytes sent and how replies are
+  read. Unscripted requests get `ERR UNKNOWN-COMMAND`, so a typo fails loudly.
+  Anything the client sends *without* reading a reply (`LOGOUT` on close) must
+  be asserted with `awaitReceived`, since the server records on its own thread.
+  (3) **Headless FX** — `FxTestSupport` boots JavaFX 26's built-in Headless
+  Glass platform via `Platform.startup`; **no TestFX and no Monocle are
+  needed**, and the tests never drive a robot, so that platform's prototype
+  input/render limits don't apply. The surefire `glass.platform=Headless`
+  property is **required for CI**: a dev box passes without it purely because
+  it has a display, so always verify FX work with
+  `DISPLAY= WAYLAND_DISPLAY= ./mvnw test`. FX tests are `@Tag("fx")`;
+  `./mvnw test -DexcludedGroups=fx` runs the pure suite alone.
 - **Never block the FX thread**: sockets and subprocesses run on named daemon
   threads (`nux-poll`, `nux-notify`); results marshal back via
   `Platform.runLater` with the generation guard.

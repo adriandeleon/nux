@@ -4,6 +4,22 @@ All notable changes to Nux are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- Headless UI tests: 154 → 179. `FxTestSupport` boots JavaFX 26's built-in
+  Headless Glass platform through `Platform.startup`, so the UI is testable
+  with **no new dependency** (no TestFX, no Monocle) and no display or Xvfb.
+  Covers the dashboard's presentation logic (severity classes not
+  accumulating across updates, readings cleared on disconnect, the multi-UPS
+  strip's visibility/selection/click), the command palette's keyboard flow
+  (filter, arrow-key bounds, Enter runs and closes, Escape runs nothing), and
+  a smoke test that every secondary window actually opens — which catches
+  mistyped stylesheet paths and missing resources that would otherwise ship
+  as a dead menu item. FX tests are tagged `fx`, so
+  `./mvnw test -DexcludedGroups=fx` still runs the pure suite alone.
+
 ## [0.2.0] - 2026-08-03
 
 ### Added

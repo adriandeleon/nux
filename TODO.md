@@ -45,10 +45,15 @@ but have never been exercised against real hardware or a real server configurati
 
 ## Engineering
 
-- [ ] FX-level tests. `com.nux.ui` and `App` still have no coverage (~2000 lines).
-      A headless-FX harness (JavaFX 26's built-in Headless platform, as in Editora)
-      would cover `Dashboard.update`, the settings round-trip (does Save produce the
-      Config you expect?), and command-palette filtering/activation.
+- [x] Headless-FX harness (`FxTestSupport`, JavaFX 26's built-in Headless platform, no
+      TestFX dependency) covering the dashboard, the command palette, and a smoke test
+      that every secondary window opens.
+- [ ] `App` itself (~700 lines) still has no coverage — the snapshot→dashboard→tray
+      wiring, the self-test scheduler and settings-apply diffing all live there. Pulling
+      those into a testable coordinator (as Editora does) is the prerequisite.
+- [ ] A settings round-trip test (does Save produce the Config you expect?) needs
+      `SettingsWindow` to expose its controls or return its built Config; today the
+      smoke test only proves it opens.
 - [ ] The tray backends (`SniTray`, `AwtTray`, `Trays`) are untested — they need a
       D-Bus session or an AWT tray. `SniMenu.Impl`'s GetLayout/GetGroupProperties/Event
       logic is plain Java, though, and could be tested without a bus.

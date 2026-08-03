@@ -101,8 +101,20 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.2</version>
                 <configuration>
-                    <!-- Run tests on the classpath: the pure protocol tests need no JPMS ceremony. -->
+                    <!-- Run tests on the classpath: the pure protocol tests need no JPMS ceremony,
+                         and setAccessible works unrestricted from the unnamed module. -->
                     <useModulePath>false</useModulePath>
+                    <systemPropertyVariables>
+                        <!-- JavaFX 26's built-in headless Glass backend: no display, no Xvfb, and
+                             nothing vendored (it ships inside javafx.graphics). Required for CI —
+                             a dev box passes without it only because it has a display. The UI
+                             tests never drive a robot, so the platform's prototype input/render
+                             limits don't apply. They are tagged "fx";
+                             -DexcludedGroups=fx runs the pure suite alone. -->
+                        <glass.platform>Headless</glass.platform>
+                        <prism.order>sw</prism.order>
+                        <java.awt.headless>true</java.awt.headless>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
             <plugin>
