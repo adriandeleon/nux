@@ -65,10 +65,20 @@ runtime. JDK 25 + JavaFX 26 + Maven, modular (JPMS, module `com.nux`).
   default true): with a tray, window close hides (`implicitExit(false)`);
   `stop()` ends with `System.exit(0)` so leftover AWT/D-Bus non-daemon threads
   can't keep a quit JVM alive.
+- `com.nux.command` — `Command` (id/title/action) + `CommandRegistry`
+  (insertion-ordered; dynamic families — `profile.connect.*`, `ups.cmd.*` —
+  swap wholesale via `removeByPrefix`; pure ranked `filter` backs the palette).
+  Every user-facing action should be registered here so the palette sees it.
 - `com.nux.ui` + `com.nux.App` — the JavaFX layer: `Dashboard`, `ArcGauge` +
-  `Sparkline` (Canvas), `CredentialsDialog`. AtlantaFX (PrimerDark) is the
-  user-agent stylesheet; app styles in `resources/com/nux/nux.css` use
-  AtlantaFX `-color-*` semantic variables where possible.
+  `Sparkline` (Canvas), `CredentialsDialog`, `SettingsWindow` (connection +
+  tray + notifications; hands a whole new `Config` to `App.applySettings`,
+  which diffs and reconnects/re-inits only what changed), `CommandPalette`
+  (an in-scene overlay on the root StackPane — never a Popup, so keyboard
+  focus can't strand in a separate native window; Ctrl/Cmd+Shift+P).
+  AtlantaFX (PrimerDark) is the user-agent stylesheet; app styles in
+  `resources/com/nux/nux.css` use AtlantaFX `-color-*` semantic variables
+  where possible. The tray metric (`TrayMetric` battery/load/runtime, config
+  key `trayMetric`) recomputes from `App.lastSnapshot` on switch.
 
 ## Conventions
 

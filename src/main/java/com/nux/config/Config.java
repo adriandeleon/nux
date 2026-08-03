@@ -17,10 +17,13 @@ public record Config(
         boolean tlsTrustAll,
         boolean autoConnect,
         boolean tray,
-        boolean closeToTray) {
+        boolean closeToTray,
+        String trayMetric,
+        boolean notifications) {
 
     public static Config defaults() {
-        return new Config(List.of(), "localhost", NutClient.DEFAULT_PORT, "", false, false, false, true, true);
+        return new Config(
+                List.of(), "localhost", NutClient.DEFAULT_PORT, "", false, false, false, true, true, "battery", true);
     }
 
     public Optional<Profile> profile(String name) {
@@ -36,11 +39,21 @@ public record Config(
     }
 
     public Config withLast(String host, int port, String ups, boolean tls) {
-        return new Config(profiles, host, port, ups == null ? "" : ups, tls, tlsTrustAll, autoConnect, tray, closeToTray);
+        return new Config(
+                profiles, host, port, ups == null ? "" : ups, tls, tlsTrustAll, autoConnect, tray, closeToTray,
+                trayMetric, notifications);
     }
 
     public Config withAutoConnect(boolean auto) {
-        return new Config(profiles, lastHost, lastPort, lastUps, lastTls, tlsTrustAll, auto, tray, closeToTray);
+        return new Config(
+                profiles, lastHost, lastPort, lastUps, lastTls, tlsTrustAll, auto, tray, closeToTray, trayMetric,
+                notifications);
+    }
+
+    public Config withTrayMetric(String metric) {
+        return new Config(
+                profiles, lastHost, lastPort, lastUps, lastTls, tlsTrustAll, autoConnect, tray, closeToTray, metric,
+                notifications);
     }
 
     /** Adds the profile, replacing any existing one of the same name. */
@@ -48,12 +61,16 @@ public record Config(
         List<Profile> next = new ArrayList<>(profiles);
         next.removeIf(p -> p.name().equals(profile.name()));
         next.add(profile);
-        return new Config(List.copyOf(next), lastHost, lastPort, lastUps, lastTls, tlsTrustAll, autoConnect, tray, closeToTray);
+        return new Config(
+                List.copyOf(next), lastHost, lastPort, lastUps, lastTls, tlsTrustAll, autoConnect, tray, closeToTray,
+                trayMetric, notifications);
     }
 
     public Config withProfileRemoved(String name) {
         List<Profile> next = new ArrayList<>(profiles);
         next.removeIf(p -> p.name().equals(name));
-        return new Config(List.copyOf(next), lastHost, lastPort, lastUps, lastTls, tlsTrustAll, autoConnect, tray, closeToTray);
+        return new Config(
+                List.copyOf(next), lastHost, lastPort, lastUps, lastTls, tlsTrustAll, autoConnect, tray, closeToTray,
+                trayMetric, notifications);
     }
 }

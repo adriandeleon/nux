@@ -21,7 +21,10 @@ shutdown, plus lost/restored server contact) via `notify-send` on Linux
 (falling back to `gdbus` when libnotify isn't installed) and `osascript` on
 macOS. Also: **instant commands** (`INSTCMD` — beeper toggle, battery
 self-test, …) from a Commands menu with confirmation and session-cached
-authentication, and **STARTTLS** (per-connection TLS toggle).
+authentication, **STARTTLS** (per-connection TLS toggle), a **settings
+window** (`Ctrl/Cmd+,`) for connection/tray/notification options, a
+**command palette** (`Ctrl/Cmd+Shift+P`), and a **selectable tray metric**
+(battery % / load % / runtime minutes).
 
 ## Requirements
 

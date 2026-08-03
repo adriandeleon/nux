@@ -35,6 +35,24 @@ class TrayDisplayTest {
     }
 
     @Test
+    void metricSelectsWhichNumberShows() {
+        UpsSnapshot s = snapshot(Map.of(
+                "battery.charge", "87", "ups.load", "23", "battery.runtime", "2280", "ups.status", "OL"));
+        assertEquals("87", TrayDisplay.of(s, TrayMetric.BATTERY).text());
+        assertEquals("23", TrayDisplay.of(s, TrayMetric.LOAD).text());
+        assertEquals("38m", TrayDisplay.of(s, TrayMetric.RUNTIME).text());
+        assertNull(TrayDisplay.of(snapshot(Map.of("battery.charge", "87")), TrayMetric.LOAD).text());
+    }
+
+    @Test
+    void metricParsesLenientlyAndDefaultsToBattery() {
+        assertEquals(TrayMetric.RUNTIME, TrayMetric.from(" Runtime "));
+        assertEquals(TrayMetric.BATTERY, TrayMetric.from("bogus"));
+        assertEquals(TrayMetric.BATTERY, TrayMetric.from(null));
+        assertEquals("load", TrayMetric.LOAD.key());
+    }
+
+    @Test
     void criticalStateDemandsAttention() {
         TrayDisplay d = TrayDisplay.of(snapshot(Map.of("battery.charge", "8", "ups.status", "OB LB")));
         assertEquals(UpsStatus.Severity.CRITICAL, d.severity());

@@ -51,3 +51,12 @@ All notable changes to Nux are documented here. The format follows
 - Release CI: a `v*` tag builds DEB/RPM/DMG/MSI across a 5-runner matrix and
   publishes a GitHub release with checksums; `ci.yml` runs the tests on every
   push.
+- Settings window (Ctrl/Cmd+, or the toolbar button): connection host/port/TLS
+  and auto-connect moved off the toolbar, plus tray options (enable,
+  close-to-tray, displayed metric) and a notifications toggle. The toolbar
+  slims to Profiles / UPS / Connect / Commands with a read-only target label.
+- Command palette (Ctrl/Cmd+Shift+P): searchable commands — connect, settings,
+  save profile, quit, per-profile connect, per-UPS instant commands, and tray
+  metric switching.
+- Selectable tray metric: Battery %, Load %, or Runtime minutes (runtime shows
+  an "m" suffix); switch from Settings or the palette, applied instantly.

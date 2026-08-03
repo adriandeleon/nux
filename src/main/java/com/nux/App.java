@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Orientation;
@@ -14,7 +15,6 @@ import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
-import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Menu;
@@ -24,20 +24,24 @@ import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
-import javafx.scene.control.TextField;
 import javafx.scene.control.TextInputDialog;
 import javafx.scene.control.TitledPane;
 import javafx.scene.control.ToolBar;
 import javafx.scene.image.Image;
+import javafx.scene.input.KeyCombination;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import javafx.stage.Stage;
 
 import atlantafx.base.theme.PrimerDark;
 
+import com.nux.command.CommandRegistry;
 import com.nux.config.Config;
 import com.nux.config.ConfigStore;
 import com.nux.config.Profile;
-import com.nux.protocol.NutClient;
 import com.nux.protocol.StatusTransitions;
 import com.nux.protocol.UpsDevice;
 import com.nux.protocol.UpsSnapshot;
@@ -46,9 +50,12 @@ import com.nux.service.Notifier;
 import com.nux.service.PollService;
 import com.nux.tray.NuxTray;
 import com.nux.tray.TrayDisplay;
+import com.nux.tray.TrayMetric;
 import com.nux.tray.Trays;
+import com.nux.ui.CommandPalette;
 import com.nux.ui.CredentialsDialog;
 import com.nux.ui.Dashboard;
+import com.nux.ui.SettingsWindow;
 
 /** Nux — a simple, powerful NUT (Network UPS Tools) client. */
 public final class App extends Application {
@@ -60,19 +67,21 @@ public final class App extends Application {
 
     private final PollService poll = new PollService();
     private final Dashboard dashboard = new Dashboard();
+    private final CommandRegistry registry = new CommandRegistry();
     private final ObservableList<Map.Entry<String, String>> varRows = FXCollections.observableArrayList();
 
     private final MenuButton profilesButton = new MenuButton("Profiles");
-    private final TextField hostField = new TextField();
-    private final TextField portField = new TextField();
     private final ComboBox<String> upsCombo = new ComboBox<>();
-    private final CheckBox tlsCheck = new CheckBox("TLS");
     private final Button connectButton = new Button("Connect");
     private final MenuButton commandsButton = new MenuButton("Commands");
+    private final Label connLabel = new Label();
 
+    private Stage stage;
+    private CommandPalette palette;
     private boolean running;
     private boolean switchingUps; // guards the combo listener during programmatic repopulation
     private UpsStatus lastStatus; // previous poll's status, for transition alerts
+    private UpsSnapshot lastSnapshot; // latest data, for tray refresh on settings changes
     private boolean commLost; // a "lost contact" notification was sent and not yet cleared
     private String authUser; // session-cached upsd credentials for INSTCMD
     private String authPass;
@@ -82,48 +91,55 @@ public final class App extends Application {
 
     @Override
     public void start(Stage stage) {
+        this.stage = stage;
         Application.setUserAgentStylesheet(new PrimerDark().getUserAgentStylesheet());
 
         config = ConfigStore.load(configPath);
-        hostField.setText(config.lastHost());
-        portField.setText(Integer.toString(config.lastPort()));
-        tlsCheck.setSelected(config.lastTls());
-        hostField.setPrefColumnCount(12);
-        portField.setPrefColumnCount(4);
         upsCombo.setPromptText("UPS");
         upsCombo.setDisable(true);
         commandsButton.setDisable(true);
+        connLabel.getStyleClass().add("conn-label");
+        refreshConnLabel();
         rebuildProfilesMenu();
 
         connectButton.setOnAction(e -> toggleConnect());
         upsCombo.valueProperty().addListener((obs, old, selected) -> {
             if (!switchingUps && running && selected != null) {
-                startFresh(hostField.getText().trim(), port(), selected);
-                saveConfig(config.withLast(hostField.getText().trim(), port(), selected, tlsCheck.isSelected()));
+                startFresh(selected);
+                saveConfig(config.withLast(config.lastHost(), config.lastPort(), selected, config.lastTls()));
             }
         });
+        Button settingsButton = new Button("Settings…");
+        settingsButton.setOnAction(e -> openSettings());
 
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
         ToolBar toolbar = new ToolBar(
                 profilesButton,
-                new Label("Host"), hostField,
-                new Label("Port"), portField,
                 new Label("UPS"), upsCombo,
-                tlsCheck,
                 connectButton,
-                commandsButton);
+                commandsButton,
+                spacer,
+                connLabel,
+                settingsButton);
 
         SplitPane split = new SplitPane(dashboard, new TitledPane("All variables", buildVarTable()));
         split.setOrientation(Orientation.VERTICAL);
         split.setDividerPositions(0.68);
 
-        BorderPane root = new BorderPane();
-        root.setTop(toolbar);
-        root.setCenter(split);
+        BorderPane content = new BorderPane();
+        content.setTop(toolbar);
+        content.setCenter(split);
+        StackPane root = new StackPane(content); // StackPane so the palette can overlay in-scene
 
         wirePollService();
+        palette = new CommandPalette(root, registry::all);
+        registerCommands();
 
         Scene scene = new Scene(root, 960, 760);
         scene.getStylesheets().add(App.class.getResource("/com/nux/nux.css").toExternalForm());
+        scene.getAccelerators().put(KeyCombination.keyCombination("Shortcut+Shift+P"), palette::toggle);
+        scene.getAccelerators().put(KeyCombination.keyCombination("Shortcut+Comma"), this::openSettings);
         stage.setScene(scene);
         stage.setTitle("Nux");
         for (int size : new int[] {16, 32, 64, 128, 256}) {
@@ -132,9 +148,16 @@ public final class App extends Application {
                 stage.getIcons().add(new Image(icon.toExternalForm()));
             }
         }
+        // With a tray, closing hides; without one (or with closeToTray off), close quits.
+        stage.setOnCloseRequest(e -> {
+            if (tray != null && config.closeToTray()) {
+                e.consume();
+                stage.hide();
+            }
+        });
         stage.show();
 
-        initTray(stage);
+        initTray();
         if (config.autoConnect() && !config.lastHost().isBlank()) {
             connect();
         }
@@ -151,52 +174,40 @@ public final class App extends Application {
         System.exit(0);
     }
 
-    // --- Tray icon ------------------------------------------------------------
-
-    /** Backend creation touches D-Bus/AWT and may block briefly, so it runs off the FX thread. */
-    private void initTray(Stage stage) {
-        if (!config.tray()) {
-            return;
-        }
-        Runnable activate = () -> javafx.application.Platform.runLater(() -> {
-            stage.setIconified(false);
-            stage.show();
-            stage.toFront();
-            stage.requestFocus();
-        });
-        Runnable quit = () -> javafx.application.Platform.runLater(javafx.application.Platform::exit);
-        Thread init = new Thread(
-                () -> Trays.create(activate, quit).ifPresent(created -> javafx.application.Platform.runLater(() -> {
-                    tray = created;
-                    pushTray(TrayDisplay.disconnected(), "Nux — not connected");
-                    if (config.closeToTray()) {
-                        // Closing the window hides to the tray; "Quit Nux" in the tray menu exits.
-                        javafx.application.Platform.setImplicitExit(false);
-                        stage.setOnCloseRequest(e -> {
-                            e.consume();
-                            stage.hide();
-                        });
-                    }
-                })),
-                "nux-tray-init");
-        init.setDaemon(true);
-        init.start();
-    }
-
-    private void pushTray(TrayDisplay display, String tooltip) {
-        if (tray == null || (display.equals(lastTrayDisplay) && tooltip.equals(lastTrayTooltip))) {
-            return;
-        }
-        lastTrayDisplay = display;
-        lastTrayTooltip = tooltip;
-        tray.update(display, tooltip);
-    }
-
     private void wirePollService() {
         poll.setOnConnected(this::onConnected);
         poll.setOnSnapshot(this::onSnapshot);
         poll.setOnCommands(this::onCommands);
         poll.setOnDisconnected(this::onDisconnected);
+    }
+
+    // --- Commands (palette) ---------------------------------------------------
+
+    private void registerCommands() {
+        registry.register("app.connect", "Connect / Disconnect", this::toggleConnect);
+        registry.register("app.settings", "Open Settings…", this::openSettings);
+        registry.register("app.saveProfile", "Save connection as profile…", this::saveCurrentAsProfile);
+        registry.register("app.quit", "Quit Nux", Platform::exit);
+        for (TrayMetric metric : TrayMetric.values()) {
+            registry.register(
+                    "tray.metric." + metric.key(), "Tray: show " + metric.label(), () -> setTrayMetric(metric));
+        }
+        refreshProfileCommands();
+    }
+
+    private void refreshProfileCommands() {
+        registry.removeByPrefix("profile.connect.");
+        for (Profile profile : config.profiles()) {
+            registry.register(
+                    "profile.connect." + profile.name(),
+                    "Connect to profile: " + profile.name(),
+                    () -> connectProfile(profile));
+        }
+    }
+
+    private void setTrayMetric(TrayMetric metric) {
+        saveConfig(config.withTrayMetric(metric.key()));
+        refreshTray();
     }
 
     // --- Connection lifecycle -------------------------------------------------
@@ -215,7 +226,7 @@ public final class App extends Application {
         String ups = upsCombo.getValue() != null
                 ? upsCombo.getValue()
                 : (config.lastUps().isBlank() ? null : config.lastUps());
-        poll.start(hostField.getText().trim(), port(), ups, config.tlsModeFor(tlsCheck.isSelected()));
+        poll.start(config.lastHost(), config.lastPort(), ups, config.tlsModeFor(config.lastTls()));
     }
 
     private void disconnect() {
@@ -225,17 +236,20 @@ public final class App extends Application {
         upsCombo.setDisable(true);
         commandsButton.setDisable(true);
         dashboard.showDisconnected("Stopped");
+        lastSnapshot = null;
         commLost = false;
+        refreshTray();
         saveConfig(config.withAutoConnect(false));
     }
 
     /** Restart polling against a (possibly) different target: history and alert state reset. */
-    private void startFresh(String host, int port, String ups) {
+    private void startFresh(String ups) {
         lastStatus = null;
+        lastSnapshot = null;
         commLost = false;
         commandsButton.setDisable(true);
         dashboard.resetHistory();
-        poll.start(host, port, ups, config.tlsModeFor(tlsCheck.isSelected()));
+        poll.start(config.lastHost(), config.lastPort(), ups, config.tlsModeFor(config.lastTls()));
     }
 
     private void onConnected(List<UpsDevice> devices) {
@@ -253,32 +267,35 @@ public final class App extends Application {
         }
         upsCombo.setDisable(upsCombo.getItems().isEmpty());
         if (commLost) {
-            Notifier.send("Nux", "Communication with the NUT server restored.", false);
+            notifyUser("Nux", "Communication with the NUT server restored.", false);
             commLost = false;
         }
-        saveConfig(config.withLast(hostField.getText().trim(), port(), upsCombo.getValue(), tlsCheck.isSelected())
+        saveConfig(config.withLast(config.lastHost(), config.lastPort(), upsCombo.getValue(), config.lastTls())
                 .withAutoConnect(true));
     }
 
     private void onSnapshot(UpsSnapshot snapshot) {
         dashboard.update(snapshot);
         varRows.setAll(snapshot.vars().entrySet());
+        lastSnapshot = snapshot;
 
         UpsStatus status = snapshot.status();
         StatusTransitions.Alert alert = StatusTransitions.alert(lastStatus, status);
         if (alert != null) {
-            Notifier.send(alert.title(), alert.message(), alert.critical());
+            notifyUser(alert.title(), alert.message(), alert.critical());
         }
         lastStatus = status;
-        pushTray(TrayDisplay.of(snapshot), TrayDisplay.tooltip(snapshot));
+        pushTray(TrayDisplay.of(snapshot, TrayMetric.from(config.trayMetric())), TrayDisplay.tooltip(snapshot));
     }
 
     private void onCommands(List<String> commands) {
         commandsButton.getItems().clear();
+        registry.removeByPrefix("ups.cmd.");
         for (String command : commands) {
             MenuItem item = new MenuItem(command);
             item.setOnAction(e -> runCommand(command));
             commandsButton.getItems().add(item);
+            registry.register("ups.cmd." + command, "UPS command: " + command, () -> runCommand(command));
         }
         commandsButton.setDisable(commands.isEmpty());
     }
@@ -286,11 +303,103 @@ public final class App extends Application {
     private void onDisconnected(String reason) {
         dashboard.showDisconnected(reason);
         commandsButton.setDisable(true);
+        lastSnapshot = null;
         pushTray(TrayDisplay.disconnected(), "Nux — disconnected");
         if (running && !commLost) {
             commLost = true;
-            Notifier.send("Nux", "Lost contact with the NUT server: " + reason, false);
+            notifyUser("Nux", "Lost contact with the NUT server: " + reason, false);
         }
+    }
+
+    private void notifyUser(String title, String message, boolean critical) {
+        if (config.notifications()) {
+            Notifier.send(title, message, critical);
+        }
+    }
+
+    // --- Settings -------------------------------------------------------------
+
+    private void openSettings() {
+        SettingsWindow.show(stage, config, this::applySettings);
+    }
+
+    private void applySettings(Config updated) {
+        boolean connectionChanged = !updated.lastHost().equals(config.lastHost())
+                || updated.lastPort() != config.lastPort()
+                || updated.lastTls() != config.lastTls();
+        boolean trayToggled = updated.tray() != config.tray();
+        saveConfig(updated);
+        refreshConnLabel();
+        if (trayToggled) {
+            if (config.tray()) {
+                initTray();
+            } else if (tray != null) {
+                tray.dispose();
+                tray = null;
+                Platform.setImplicitExit(true);
+            }
+        }
+        refreshTray();
+        if (running && connectionChanged) {
+            startFresh(upsCombo.getValue());
+        }
+    }
+
+    private void refreshConnLabel() {
+        connLabel.setText(config.lastHost() + ":" + config.lastPort() + (config.lastTls() ? "  (TLS)" : ""));
+    }
+
+    // --- Tray icon ------------------------------------------------------------
+
+    /** Backend creation touches D-Bus/AWT and may block briefly, so it runs off the FX thread. */
+    private void initTray() {
+        if (!config.tray()) {
+            return;
+        }
+        Runnable activate = () -> Platform.runLater(() -> {
+            stage.setIconified(false);
+            stage.show();
+            stage.toFront();
+            stage.requestFocus();
+        });
+        Runnable quit = () -> Platform.runLater(Platform::exit);
+        Thread init = new Thread(
+                () -> Trays.create(activate, quit).ifPresent(created -> Platform.runLater(() -> {
+                    if (!config.tray()) {
+                        created.dispose(); // toggled back off while we were starting
+                        return;
+                    }
+                    tray = created;
+                    if (config.closeToTray()) {
+                        Platform.setImplicitExit(false);
+                    }
+                    refreshTray();
+                })),
+                "nux-tray-init");
+        init.setDaemon(true);
+        init.start();
+    }
+
+    /** Recomputes the tray from the latest data (metric/settings changes bypass the dedupe). */
+    private void refreshTray() {
+        lastTrayDisplay = null;
+        lastTrayTooltip = null;
+        if (lastSnapshot != null) {
+            pushTray(
+                    TrayDisplay.of(lastSnapshot, TrayMetric.from(config.trayMetric())),
+                    TrayDisplay.tooltip(lastSnapshot));
+        } else {
+            pushTray(TrayDisplay.disconnected(), running ? "Nux — disconnected" : "Nux — not connected");
+        }
+    }
+
+    private void pushTray(TrayDisplay display, String tooltip) {
+        if (tray == null || (display.equals(lastTrayDisplay) && tooltip.equals(lastTrayTooltip))) {
+            return;
+        }
+        lastTrayDisplay = display;
+        lastTrayTooltip = tooltip;
+        tray.update(display, tooltip);
     }
 
     // --- Instant commands -----------------------------------------------------
@@ -318,7 +427,7 @@ public final class App extends Application {
         }
         poll.runInstCmd(ups, authUser, authPass, command, (ok, message) -> {
             if (ok) {
-                Notifier.send("Nux", "Command " + command + " sent to " + ups + ".", false);
+                notifyUser("Nux", "Command " + command + " sent to " + ups + ".", false);
             } else {
                 authPass = null; // could be bad credentials; re-prompt next time
                 Alert error = new Alert(Alert.AlertType.ERROR);
@@ -361,6 +470,7 @@ public final class App extends Application {
                 item.setOnAction(e -> {
                     saveConfig(config.withProfileRemoved(profile.name()));
                     rebuildProfilesMenu();
+                    refreshProfileCommands();
                 });
                 delete.getItems().add(item);
             }
@@ -375,9 +485,6 @@ public final class App extends Application {
     }
 
     private void connectProfile(Profile profile) {
-        hostField.setText(profile.host());
-        portField.setText(Integer.toString(profile.port()));
-        tlsCheck.setSelected(profile.tls());
         switchingUps = true;
         try {
             upsCombo.getItems().clear(); // the new server announces its own UPS list on connect
@@ -386,13 +493,14 @@ public final class App extends Application {
             switchingUps = false;
         }
         saveConfig(config.withLast(profile.host(), profile.port(), profile.ups(), profile.tls()));
+        refreshConnLabel();
         running = true;
         connectButton.setText("Disconnect");
-        startFresh(profile.host(), profile.port(), profile.ups().isBlank() ? null : profile.ups());
+        startFresh(profile.ups().isBlank() ? null : profile.ups());
     }
 
     private void saveCurrentAsProfile() {
-        TextInputDialog dialog = new TextInputDialog(hostField.getText().trim());
+        TextInputDialog dialog = new TextInputDialog(config.lastHost());
         dialog.setTitle("Save profile");
         dialog.setHeaderText("Save the current connection as a profile");
         dialog.setContentText("Name:");
@@ -405,9 +513,10 @@ public final class App extends Application {
             return;
         }
         String ups = upsCombo.getValue() != null ? upsCombo.getValue() : "";
-        Profile profile = new Profile(name, hostField.getText().trim(), port(), ups, tlsCheck.isSelected());
+        Profile profile = new Profile(name, config.lastHost(), config.lastPort(), ups, config.lastTls());
         saveConfig(config.withProfileSaved(profile));
         rebuildProfilesMenu();
+        refreshProfileCommands();
     }
 
     // --- Helpers --------------------------------------------------------------
@@ -418,14 +527,6 @@ public final class App extends Application {
             ConfigStore.save(configPath, config);
         } catch (IOException e) {
             LOG.log(System.Logger.Level.WARNING, "Could not save config to " + configPath, e);
-        }
-    }
-
-    private int port() {
-        try {
-            return Integer.parseInt(portField.getText().trim());
-        } catch (NumberFormatException e) {
-            return NutClient.DEFAULT_PORT;
         }
     }
 

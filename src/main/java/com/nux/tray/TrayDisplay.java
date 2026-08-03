@@ -6,17 +6,30 @@ import com.nux.protocol.UpsSnapshot;
 import com.nux.protocol.UpsStatus;
 
 /**
- * Pure description of what the tray icon should show: the charge number when known
- * (else the bolt glyph), colored by severity. Value-equal snapshots let the caller
- * skip redundant repaints.
+ * Pure description of what the tray icon should show: the chosen metric's number when
+ * known (else the bolt glyph), colored by severity. Value-equal snapshots let the
+ * caller skip redundant repaints.
  */
 public record TrayDisplay(String text, UpsStatus.Severity severity, boolean connected) {
 
     public static TrayDisplay of(UpsSnapshot snapshot) {
-        String text = snapshot.chargePercent()
-                .map(c -> Integer.toString((int) Math.round(c)))
-                .orElse(null);
+        return of(snapshot, TrayMetric.BATTERY);
+    }
+
+    public static TrayDisplay of(UpsSnapshot snapshot, TrayMetric metric) {
+        String text = switch (metric) {
+            case BATTERY -> snapshot.chargePercent().map(TrayDisplay::round).orElse(null);
+            case LOAD -> snapshot.loadPercent().map(TrayDisplay::round).orElse(null);
+            // The "m" suffix marks the number as minutes, distinguishing it from the % metrics.
+            case RUNTIME -> snapshot.runtimeSeconds()
+                    .map(sec -> round(sec / 60) + "m")
+                    .orElse(null);
+        };
         return new TrayDisplay(text, snapshot.status().severity(), true);
+    }
+
+    private static String round(double value) {
+        return Integer.toString((int) Math.round(value));
     }
 
     public static TrayDisplay disconnected() {
