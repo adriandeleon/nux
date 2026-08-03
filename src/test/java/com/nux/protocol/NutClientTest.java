@@ -225,6 +225,8 @@ class NutClientTest {
         NutClient client = connect();
         client.listUps();
         client.close();
-        assertTrue(server.received().contains("LOGOUT"));
+        // close() writes LOGOUT and hangs up without reading a reply, so the server may
+        // not have recorded it yet — assert with a wait rather than instantaneously.
+        assertTrue(server.awaitReceived("LOGOUT", 2000));
     }
 }

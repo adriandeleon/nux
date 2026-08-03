@@ -34,9 +34,14 @@ public final class VariablesWindow {
         void set(String variable, String value, BiConsumer<Boolean, String> onResult);
     }
 
+    /** Re-reads the writable variables, handing them back on the FX thread. */
+    public interface Reloader {
+        void reload(Consumer<List<RwVariable>> onLoaded);
+    }
+
     private VariablesWindow() {}
 
-    public static void show(Window owner, String ups, List<RwVariable> variables, Setter setter, Runnable onReload) {
+    public static void show(Window owner, String ups, List<RwVariable> variables, Setter setter, Reloader reloader) {
         ListView<RwVariable> list = new ListView<>();
         list.getItems().setAll(variables);
         list.setCellFactory(v -> new ListCell<>() {
@@ -57,6 +62,20 @@ public final class VariablesWindow {
         Button apply = new Button("Apply");
         apply.setDisable(true);
 
+        // A successful write must be reflected in the list, or the row keeps showing the
+        // old value and the change looks like it failed. Re-select the same variable so
+        // the user stays where they were.
+        Runnable refresh = () -> reloader.reload(reloaded -> {
+            String selectedName = list.getSelectionModel().getSelectedItem() == null
+                    ? null
+                    : list.getSelectionModel().getSelectedItem().name();
+            list.getItems().setAll(reloaded);
+            reloaded.stream()
+                    .filter(v -> v.name().equals(selectedName))
+                    .findFirst()
+                    .ifPresent(v -> list.getSelectionModel().select(v));
+        });
+
         list.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> {
             editorRow.getChildren().clear();
             status.setText("");
@@ -73,13 +92,13 @@ public final class VariablesWindow {
                     combo.getItems().setAll(selected.options());
                     combo.setValue(selected.value());
                     editorRow.getChildren().addAll(new Label(selected.name()), combo);
-                    apply.setOnAction(e -> applyValue(selected, combo.getValue(), setter, status, onReload));
+                    apply.setOnAction(e -> applyValue(selected, combo.getValue(), setter, status, refresh));
                 }
                 default -> {
                     TextField field = new TextField(selected.value());
                     field.setPrefColumnCount(16);
                     editorRow.getChildren().addAll(new Label(selected.name()), field);
-                    apply.setOnAction(e -> applyValue(selected, field.getText().trim(), setter, status, onReload));
+                    apply.setOnAction(e -> applyValue(selected, field.getText().trim(), setter, status, refresh));
                 }
             }
         });
@@ -103,8 +122,7 @@ public final class VariablesWindow {
         stage.show();
     }
 
-    private static void applyValue(
-            RwVariable variable, String value, Setter setter, Label status, Runnable onReload) {
+    private static void applyValue(RwVariable variable, String value, Setter setter, Label status, Runnable refresh) {
         if (!variable.accepts(value)) {
             status.setText("Value not allowed for " + variable.name());
             return;
@@ -113,7 +131,7 @@ public final class VariablesWindow {
         setter.set(variable.name(), value, (ok, message) -> {
             status.setText(ok ? "Applied" : "Failed: " + message);
             if (ok) {
-                onReload.run();
+                refresh.run();
             }
         });
     }
@@ -133,7 +151,4 @@ public final class VariablesWindow {
         }
         return d == Math.rint(d) ? Long.toString((long) (double) d) : String.valueOf(d);
     }
-
-    /** A consumer alias so callers can pass a method reference for the reload. */
-    public interface Reloader extends Consumer<List<RwVariable>> {}
 }

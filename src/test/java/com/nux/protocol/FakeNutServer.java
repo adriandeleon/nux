@@ -57,6 +57,27 @@ public final class FakeNutServer implements AutoCloseable {
         return List.copyOf(received);
     }
 
+    /**
+     * Waits for a request line to arrive. Needed for anything the client sends without
+     * reading a reply — {@code LOGOUT} on close — because the server records on its own
+     * thread and an immediate assertion races it.
+     */
+    public boolean awaitReceived(String line, long timeoutMillis) {
+        long deadline = System.nanoTime() + timeoutMillis * 1_000_000L;
+        while (System.nanoTime() < deadline) {
+            if (received.contains(line)) {
+                return true;
+            }
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return received.contains(line);
+    }
+
     private void acceptLoop() {
         while (!closed) {
             try (Socket socket = server.accept()) {

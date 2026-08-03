@@ -11,17 +11,16 @@ but have never been exercised against real hardware or a real server configurati
       driver failure surfaces as a failure and not as a silent success.
 - [ ] **Multi-UPS overview (unverified).** Correct by construction, but no test rig
       with more than one UPS on a single `upsd` has been available.
-- [ ] **Windows and macOS installers (unverified beyond building).** The 0.1.0 DMG and
-      MSI build cleanly in CI; nobody has installed and launched them.
+- [ ] **Windows and macOS installers (unverified beyond building).** The DMG and MSI
+      build cleanly in CI; nobody has installed and launched them.
+- [ ] **Windows notifications (unverified).** They now route through
+      `TrayIcon.displayMessage`, which is the documented native path, but no one has
+      seen one appear on a real Windows desktop.
 - [ ] Verify the `.desktop`/`StartupWMClass` icon fix from an actually-installed `.deb`
       (it is verified inside the package, not after installation).
 
 ## Known gaps
 
-- [ ] The settable-variable editor does not refresh its list after a successful write,
-      so the row still shows the previous value until the window is reopened
-      (`VariablesWindow` is passed a no-op reload callback).
-- [ ] Desktop notifications are a no-op on Windows — needs a toast implementation.
 - [ ] The app theme is hardcoded to AtlantaFX PrimerDark; no light/dark switch.
 - [ ] No localisation: all strings are English literals in the source.
 

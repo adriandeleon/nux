@@ -517,7 +517,8 @@ public final class App extends Application {
                 alert.show();
                 return;
             }
-            VariablesWindow.show(stage, ups, variables, this::setVariable, () -> {});
+            VariablesWindow.show(
+                    stage, ups, variables, this::setVariable, onLoaded -> poll.loadRwVariables(ups, onLoaded));
         });
     }
 

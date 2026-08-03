@@ -4,7 +4,7 @@ All notable changes to Nux are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] - 2026-08-03
 
 ### Added
 
@@ -29,9 +29,20 @@ All notable changes to Nux are documented here. The format follows
   single source of truth, and a `-SNAPSHOT` build is labelled a development
   build so it can't be mistaken for a release.
 
+### Fixed
+
+- Windows had no notifications at all: `Notifier` handled Linux and macOS and
+  fell through to nothing, so the one thing a UPS monitor exists to tell you
+  was silently dropped on a supported platform. Windows now raises native
+  notifications through the tray icon (`TrayIcon.displayMessage`), which is
+  also a fallback everywhere else if the platform tool is missing.
+- The settable-variable editor did not refresh after a successful write, so
+  the row kept showing the old value and the change looked like it had
+  failed. It now reloads and re-selects the variable you were editing.
+
 ### Changed
 
-- Tests: 107 → 149. The two most consequential classes had no coverage at all;
+- Tests: 107 → 154. The two most consequential classes had no coverage at all;
   both are now exercised against a scripted in-process upsd
   (`FakeNutServer`) that asserts both directions — the exact bytes sent and
   how replies are interpreted. `NutClient` gains 15 tests (command lines,

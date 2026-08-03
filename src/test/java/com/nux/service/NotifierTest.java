@@ -1,6 +1,7 @@
 package com.nux.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -8,6 +9,15 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class NotifierTest {
+
+    @Test
+    void windowsHasNoNativeToolSoItMustUseTheTray() {
+        // A UPS monitor that cannot warn about a power cut on a supported platform is
+        // missing its whole point; Windows notifications go through TrayIcon instead.
+        assertFalse(Notifier.hasNativeTool("windows 11"));
+        assertTrue(Notifier.hasNativeTool("linux"));
+        assertTrue(Notifier.hasNativeTool("mac os x"));
+    }
 
     @Test
     void escapesAppleScriptStringLiterals() {

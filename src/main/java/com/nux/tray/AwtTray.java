@@ -10,6 +10,8 @@ import java.awt.event.MouseEvent;
 import java.awt.image.BaseMultiResolutionImage;
 import java.awt.image.BufferedImage;
 
+import com.nux.service.Notifier;
+
 /**
  * The AWT tray backend for Windows and macOS (and legacy X11 trays). All AWT
  * mutations are marshaled onto the EDT; the icon is a multi-resolution image so
@@ -65,6 +67,14 @@ public final class AwtTray implements NuxTray {
         if (failure[0] != null) {
             throw failure[0];
         }
+        // Windows has no CLI equivalent of notify-send/osascript; the tray raises the
+        // native notification instead, so hand the Notifier a channel it can use.
+        Notifier.setTraySink(this::notify);
+    }
+
+    /** Raises a native notification through the tray icon. */
+    public void notify(String title, String message) {
+        EventQueue.invokeLater(() -> trayIcon.displayMessage(title, message, TrayIcon.MessageType.INFO));
     }
 
     @Override
@@ -79,6 +89,7 @@ public final class AwtTray implements NuxTray {
 
     @Override
     public void dispose() {
+        Notifier.setTraySink(null);
         EventQueue.invokeLater(() -> tray.remove(trayIcon));
     }
 
