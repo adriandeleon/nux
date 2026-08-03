@@ -80,3 +80,15 @@
 .event-critical {
     -fx-background-color: -color-danger-subtle;
 }
+
+/* About */
+.about-title {
+    -fx-font-size: 1.8em;
+    -fx-font-weight: bold;
+}
+
+.about-details {
+    -fx-text-fill: -color-fg-muted;
+    -fx-font-family: monospace;
+    -fx-font-size: 0.9em;
+}

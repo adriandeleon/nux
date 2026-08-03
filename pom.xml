@@ -25,6 +25,11 @@
 
         <!-- jpackage icon format is per-OS; the os-* profiles below override this. -->
         <jpackage.icon>${project.basedir}/branding/nux.png</jpackage.icon>
+
+        <!-- Baked into build-info.properties for the About window. The indirection is the
+             standard workaround for maven.build.timestamp not being filtered directly. -->
+        <maven.build.timestamp.format>yyyy-MM-dd HH:mm 'UTC'</maven.build.timestamp.format>
+        <build.timestamp>${maven.build.timestamp}</build.timestamp>
     </properties>
 
     <dependencies>
@@ -67,6 +72,24 @@
     </dependencies>
 
     <build>
+        <!-- Only build-info.properties is filtered: running the filter over the whole
+             resource tree would corrupt the icon PNGs. -->
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <excludes>
+                    <exclude>com/nux/build-info.properties</exclude>
+                </excludes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>com/nux/build-info.properties</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

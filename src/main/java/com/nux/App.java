@@ -64,6 +64,7 @@ import com.nux.tray.NuxTray;
 import com.nux.tray.TrayDisplay;
 import com.nux.tray.TrayMetric;
 import com.nux.tray.Trays;
+import com.nux.ui.AboutWindow;
 import com.nux.ui.CommandPalette;
 import com.nux.ui.CredentialsDialog;
 import com.nux.ui.Dashboard;
@@ -136,6 +137,9 @@ public final class App extends Application {
         });
         Button settingsButton = new Button("Settings…");
         settingsButton.setOnAction(e -> openSettings());
+        Button aboutButton = new Button("?");
+        aboutButton.setTooltip(new javafx.scene.control.Tooltip("About " + AppInfo.NAME));
+        aboutButton.setOnAction(e -> openAbout());
         Button historyButton = new Button("History");
         historyButton.setOnAction(e -> openHistory());
         Button eventsButton = new Button("Events");
@@ -152,7 +156,8 @@ public final class App extends Application {
                 eventsButton,
                 spacer,
                 connLabel,
-                settingsButton);
+                settingsButton,
+                aboutButton);
 
         SplitPane split = new SplitPane(dashboard, new TitledPane("All variables", buildVarTable()));
         split.setOrientation(Orientation.VERTICAL);
@@ -269,6 +274,7 @@ public final class App extends Application {
                 Autostart.setEnabled(now, config.tray());
             });
         }
+        registry.register("app.about", "About Nux", this::openAbout);
         registry.register("app.quit", "Quit Nux", Platform::exit);
         for (TrayMetric metric : TrayMetric.values()) {
             registry.register(
@@ -471,6 +477,10 @@ public final class App extends Application {
 
     private void openEvents() {
         EventsWindow.show(stage, events);
+    }
+
+    private void openAbout() {
+        AboutWindow.show(stage, url -> getHostServices().showDocument(url), configPath.getParent().toString());
     }
 
     /** Picking a discovered server points the connection at it and reconnects if running. */

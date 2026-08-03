@@ -20,6 +20,14 @@ All notable changes to Nux are documented here. The format follows
 - `--screenshot=<file>` saves the window as a PNG a few seconds after start,
   for documentation and bug reports.
 - README screenshot.
+- About window (toolbar **?** button, or "About Nux" in the command palette):
+  icon, version, author, copyright, and links to the license, the source
+  repository, the issue tracker, and the Network UPS Tools project. It also
+  shows Java/JavaFX/OS versions and the config directory, with a **Copy
+  details** button for pasting into a bug report. The version comes from a
+  Maven-filtered resource rather than a constant, so `pom.xml` remains the
+  single source of truth, and a `-SNAPSHOT` build is labelled a development
+  build so it can't be mistaken for a release.
 
 ### Changed
 

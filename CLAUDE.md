@@ -137,6 +137,11 @@ derives it from the module main class, *not* the app name — verified with
   `selfTestLastRun` **before** issuing the command, so a failing test can't
   retry on every 5-second poll.
 - Surefire runs tests on the **classpath** (`useModulePath=false`).
+- **Never hardcode the version.** `AppInfo.VERSION` reads a Maven-filtered
+  `build-info.properties`, so `pom.xml` is the only place a release number lives
+  (`AppInfo` falls back to `0.0.0` on an unfiltered run and never shows a raw
+  `${...}` placeholder). Note the pom filters **only** that one resource — running
+  the filter over `src/main/resources` would corrupt the icon PNGs.
 - Versions: `jpackage.appVersion` in the pom must stay a plain dotted number
   (jpackage rejects `-SNAPSHOT`), and **jpackage on macOS rejects a version
   whose first number is 0** — release.yml bumps `0.x.y` → `1.x.y` for the
