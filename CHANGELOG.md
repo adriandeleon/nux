@@ -88,6 +88,14 @@ All notable changes to Nux are documented here. The format follows
   tracking id is polled on the shared scheduler, so waiting never stalls the
   measurement poll; servers without tracking (or with it switched off) fall
   back to the previous accept-only behaviour automatically.
+- Linux app icon: packaged builds now ship a `.desktop` entry carrying
+  `StartupWMClass=com.nux.App` (the window's real class) plus proper
+  categories and description, so the desktop matches the running window to
+  the launcher and shows the Nux icon instead of a generic one. The icon is
+  staged into the jpackage resource dir as well, because the DEB bundler
+  regenerates it and would otherwise discard `--icon`.
+  `scripts/install-dev-desktop.sh` does the same for runs from the source
+  tree.
 - LAN discovery: "Find servers…" in Settings (and a command-palette entry)
   scans the machine's own IPv4 subnets for NUT servers, confirming each hit
   with a real `LIST UPS` exchange before listing it. Ranges wider than a /22

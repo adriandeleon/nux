@@ -124,9 +124,39 @@
                 <jpackage.type>APP_IMAGE</jpackage.type>
                 <!-- jpackage rejects non-numeric app versions, so no -SNAPSHOT here. -->
                 <jpackage.appVersion>0.1.0</jpackage.appVersion>
+                <jpackage.resourceDir>${project.build.directory}/jpackage-resources</jpackage.resourceDir>
             </properties>
             <build>
                 <plugins>
+                    <!-- Stage the jpackage resource overrides: the Linux .desktop template
+                         (which adds StartupWMClass — without it the desktop can't match the
+                         running window to the launcher and shows a generic icon) and the icon
+                         under the name the DEB bundler regenerates. Files jpackage doesn't
+                         recognise for the host platform are simply ignored. -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-antrun-plugin</artifactId>
+                        <version>3.1.0</version>
+                        <executions>
+                            <execution>
+                                <id>stage-jpackage-resources</id>
+                                <phase>prepare-package</phase>
+                                <goals>
+                                    <goal>run</goal>
+                                </goals>
+                                <configuration>
+                                    <target>
+                                        <mkdir dir="${jpackage.resourceDir}"/>
+                                        <copy todir="${jpackage.resourceDir}">
+                                            <fileset dir="${project.basedir}/packaging/linux"/>
+                                        </copy>
+                                        <copy file="${project.basedir}/branding/nux.png"
+                                              tofile="${jpackage.resourceDir}/Nux.png"/>
+                                    </target>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
                     <plugin>
                         <groupId>org.openjfx</groupId>
                         <artifactId>javafx-maven-plugin</artifactId>
@@ -164,11 +194,14 @@
                                     <name>Nux</name>
                                     <appVersion>${jpackage.appVersion}</appVersion>
                                     <vendor>Adrian De Leon</vendor>
+                                    <!-- Becomes Comment= in the Linux .desktop entry. -->
+                                    <description>NUT (Network UPS Tools) client</description>
                                     <type>${jpackage.type}</type>
                                     <runtimeImage>${project.build.directory}/nux-runtime</runtimeImage>
                                     <module>com.nux/com.nux.App</module>
                                     <destination>${project.build.directory}/dist</destination>
                                     <icon>${jpackage.icon}</icon>
+                                    <resourceDir>${jpackage.resourceDir}</resourceDir>
                                 </configuration>
                             </execution>
                         </executions>

@@ -14,8 +14,32 @@ runtime. JDK 25 + JavaFX 26 + Maven, modular (JPMS, module `com.nux`).
   All dependencies are real JPMS modules, so jlink links directly — **no moditect,
   no jar surgery** (keep it that way when adding dependencies).
 - Regenerate the icon: `java scripts/gen_icon.java` (headless Java2D; writes
-  `branding/nux-*.png` + the window icons under `src/main/resources/com/nux/icons/`).
+  `branding/nux-*.png` + the window icons under `src/main/resources/com/nux/icons/`,
+  plus `nux.ico`/`nux.icns` for the Windows/macOS installers).
   The vector source of truth is `branding/nux.svg` — keep both in sync.
+- Dev desktop entry: `scripts/install-dev-desktop.sh` (`--uninstall` to remove).
+
+## App icon on Linux — the StartupWMClass rule
+
+`Stage.getIcons()` only sets `_NET_WM_ICON`, which **Wayland ignores and GNOME
+deprioritises**. Desktops identify a window by matching its `WM_CLASS` against a
+`.desktop` file's `StartupWMClass`; with no match you get a generic icon no matter
+what the app sets at runtime. Nux's real `WM_CLASS` is **`com.nux.App`** (JavaFX
+derives it from the module main class, *not* the app name — verified with
+`xwininfo -root -tree`). So:
+
+- **Packaged builds** ship `packaging/linux/Nux.desktop`, staged into the jpackage
+  `resourceDir` by the dist profile's antrun step. jpackage substitutes its
+  `APPLICATION_*` placeholders; our overrides add `StartupWMClass` and real
+  `Categories` (it would otherwise emit `Unknown`).
+- **The icon must also be staged into that resource dir as `Nux.png`** — the DEB
+  bundler regenerates `lib/<name>.png` from its own resources and would otherwise
+  clobber `--icon`. Verify a built `.deb` with
+  `dpkg-deb --fsys-tarfile … | tar -xO ./opt/nux/lib/Nux.png | sha256sum` against
+  `branding/nux.png`; they must match.
+- **Source runs** (`mvn javafx:run`) have no installed entry at all, so run
+  `scripts/install-dev-desktop.sh` once; the app must be restarted afterwards for
+  the desktop to re-match the window.
 
 ## Architecture
 

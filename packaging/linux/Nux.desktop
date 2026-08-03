@@ -1,0 +1,15 @@
+[Desktop Entry]
+Name=APPLICATION_NAME
+Comment=APPLICATION_DESCRIPTION
+Exec=APPLICATION_LAUNCHER
+Icon=APPLICATION_ICON
+Terminal=false
+Type=Application
+# jpackage would emit "Unknown" here; a UPS monitor belongs in System/Monitor.
+Categories=System;Monitor;Utility;
+# The running window's real WM_CLASS (JavaFX derives it from the module main class,
+# NOT from the app name). Without this line the desktop cannot match the window to
+# this entry, and shows a generic icon in the dock and switcher no matter what
+# Stage.getIcons() sets — on Wayland _NET_WM_ICON is ignored entirely.
+StartupWMClass=com.nux.App
+DESKTOP_MIMES
