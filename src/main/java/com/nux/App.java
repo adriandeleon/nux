@@ -50,6 +50,7 @@ import com.nux.config.Advanced;
 import com.nux.config.Config;
 import com.nux.config.ConfigStore;
 import com.nux.config.Profile;
+import com.nux.instance.SingleInstance;
 import com.nux.protocol.StatusTransitions;
 import com.nux.protocol.UpsDevice;
 import com.nux.protocol.UpsSnapshot;
@@ -107,6 +108,7 @@ public final class App extends Application {
     private String authUser; // session-cached upsd credentials for INSTCMD
     private String authPass;
     private NuxTray tray;
+    private SingleInstance singleInstance;
     private TrayDisplay lastTrayDisplay;
     private String lastTrayTooltip;
 
@@ -197,6 +199,7 @@ public final class App extends Application {
         }
 
         initTray();
+        claimSingleInstance();
         if (config.autoConnect() && !config.lastHost().isBlank()) {
             connect();
         }
@@ -237,8 +240,36 @@ public final class App extends Application {
         pruner.start();
     }
 
+    /** Brings the window up from the tray, another instance's request, or a minimised start. */
+    private void raiseWindow() {
+        Platform.runLater(() -> {
+            stage.setIconified(false);
+            stage.show();
+            stage.toFront();
+            stage.requestFocus();
+        });
+    }
+
+    /**
+     * Claims the single-instance lock so a later launch raises this window instead of
+     * starting a rival that would poll the same UPS twice. Failure is not fatal: the app
+     * runs regardless rather than leaving the user with nothing.
+     */
+    private void claimSingleInstance() {
+        if (!config.advanced().singleInstance()) {
+            return;
+        }
+        SingleInstance.acquire(instanceLockFile()).ifPresent(instance -> {
+            singleInstance = instance;
+            instance.setOnActivate(this::raiseWindow);
+        });
+    }
+
     @Override
     public void stop() {
+        if (singleInstance != null) {
+            singleInstance.close();
+        }
         if (tray != null) {
             tray.dispose();
         }
@@ -594,12 +625,7 @@ public final class App extends Application {
         if (!config.tray()) {
             return;
         }
-        Runnable activate = () -> Platform.runLater(() -> {
-            stage.setIconified(false);
-            stage.show();
-            stage.toFront();
-            stage.requestFocus();
-        });
+        Runnable activate = this::raiseWindow;
         Runnable quit = () -> Platform.runLater(Platform::exit);
         Thread init = new Thread(
                 () -> {
@@ -794,7 +820,22 @@ public final class App extends Application {
         return table;
     }
 
+    /** The lock file naming the running instance's port. */
+    private static Path instanceLockFile() {
+        return ConfigStore.DEFAULT_PATH.getParent().resolve("instance.port");
+    }
+
     public static void main(String[] args) {
+        // Before the toolkit starts: if Nux is already running, raise its window and stop.
+        // Config is read directly here — this must settle before any UI exists.
+        if (ConfigStore.load(ConfigStore.DEFAULT_PATH).advanced().singleInstance()
+                && SingleInstance.signalExisting(instanceLockFile(), SingleInstance.HANDSHAKE_TIMEOUT_MS)) {
+            System.exit(0);
+        }
+        launchApp(args);
+    }
+
+    private static void launchApp(String[] args) {
         launch(args);
     }
 }

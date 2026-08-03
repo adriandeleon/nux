@@ -6,6 +6,17 @@ All notable changes to Nux are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Single instance: launching Nux again raises the running window instead of
+  starting a second copy that would poll the same UPS twice. The hand-off
+  happens before the toolkit starts, so there is no window flash. It is a
+  loopback socket on an ephemeral port recorded in `~/.nux/instance.port`,
+  and the running instance must complete a handshake before the new launch
+  stands down — after a crash that port can be reused by unrelated software,
+  and trusting *any* answer would leave the user with no Nux at all. Turn it
+  off in Settings → Tray to run several copies side by side.
+
 ### Changed
 
 - Headless UI tests: 154 → 179. `FxTestSupport` boots JavaFX 26's built-in

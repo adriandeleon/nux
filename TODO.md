@@ -16,8 +16,9 @@ but have never been exercised against real hardware or a real server configurati
 - [ ] **Windows notifications (unverified).** They now route through
       `TrayIcon.displayMessage`, which is the documented native path, but no one has
       seen one appear on a real Windows desktop.
-- [ ] Verify the `.desktop`/`StartupWMClass` icon fix from an actually-installed `.deb`
-      (it is verified inside the package, not after installation).
+- [x] ~~Verify the `.desktop`/`StartupWMClass` icon fix from an actually-installed
+      `.deb`.~~ Done: the installed entry carries `StartupWMClass=com.nux.App` and
+      `/opt/nux/lib/Nux.png` is byte-identical to `branding/nux.png`.
 
 ## Known gaps
 

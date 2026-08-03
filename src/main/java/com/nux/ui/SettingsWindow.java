@@ -72,6 +72,8 @@ public final class SettingsWindow {
         metric.disableProperty().bind(tray.selectedProperty().not());
         CheckBox notifications = new CheckBox("Desktop notifications on power events");
         notifications.setSelected(current.notifications());
+        CheckBox singleInstance = new CheckBox("Only one Nux at a time (re-launching shows this window)");
+        singleInstance.setSelected(adv.singleInstance());
 
         // Start-at-login is OS state, not app config: read it back from the OS so the two
         // can never disagree, and apply it immediately rather than on Save.
@@ -95,6 +97,10 @@ public final class SettingsWindow {
         trayGrid.addRow(2, new Label("Tray shows"), metric);
         trayGrid.add(notifications, 0, 3, 2, 1);
         trayGrid.add(autostart, 0, 4, 2, 1);
+        trayGrid.add(singleInstance, 0, 6, 2, 1);
+        trayGrid.add(
+                note("Off allows several copies at once — useful for watching two servers side by side."),
+                0, 7, 2, 1);
         trayGrid.add(
                 note("When the tray icon is enabled, starting at login opens Nux minimised to the tray."),
                 0, 5, 2, 1);
@@ -168,7 +174,8 @@ public final class SettingsWindow {
                     interval.getValue(),
                     time.getText().trim(),
                     adv.selfTestLastRun(),
-                    command.getText().isBlank() ? Advanced.DEFAULT_TEST_COMMAND : command.getText().trim());
+                    command.getText().isBlank() ? Advanced.DEFAULT_TEST_COMMAND : command.getText().trim(),
+                    singleInstance.isSelected());
             onSave.accept(new Config(
                     current.profiles(),
                     host.getText().trim(),
