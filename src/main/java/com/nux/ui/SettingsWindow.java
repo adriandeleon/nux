@@ -13,6 +13,7 @@ import javafx.scene.control.Spinner;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.TextField;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -24,6 +25,7 @@ import javafx.stage.Window;
 import javafx.util.StringConverter;
 
 import com.nux.analysis.TestSchedule;
+import com.nux.autostart.Autostart;
 import com.nux.config.Advanced;
 import com.nux.config.Config;
 import com.nux.protocol.NutClient;
@@ -70,11 +72,32 @@ public final class SettingsWindow {
         metric.disableProperty().bind(tray.selectedProperty().not());
         CheckBox notifications = new CheckBox("Desktop notifications on power events");
         notifications.setSelected(current.notifications());
+
+        // Start-at-login is OS state, not app config: read it back from the OS so the two
+        // can never disagree, and apply it immediately rather than on Save.
+        CheckBox autostart = new CheckBox("Start Nux when I log in");
+        autostart.setSelected(Autostart.isEnabled());
+        if (Autostart.isSupported()) {
+            autostart.selectedProperty().addListener((o, was, now) -> {
+                boolean minimized = tray.isSelected();
+                if (!Autostart.setEnabled(now, minimized)) {
+                    autostart.setSelected(Autostart.isEnabled()); // revert to the truth
+                }
+            });
+        } else {
+            autostart.setDisable(true);
+            autostart.setTooltip(new Tooltip(Autostart.unavailableReason()));
+        }
+
         GridPane trayGrid = grid();
         trayGrid.add(tray, 0, 0, 2, 1);
         trayGrid.add(closeToTray, 0, 1, 2, 1);
         trayGrid.addRow(2, new Label("Tray shows"), metric);
         trayGrid.add(notifications, 0, 3, 2, 1);
+        trayGrid.add(autostart, 0, 4, 2, 1);
+        trayGrid.add(
+                note("When the tray icon is enabled, starting at login opens Nux minimised to the tray."),
+                0, 5, 2, 1);
 
         // --- Power & history
         TextField watts = new TextField(adv.nominalWatts() > 0 ? trim(adv.nominalWatts()) : "");

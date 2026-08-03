@@ -28,6 +28,8 @@ It is built with the help of AI coding tools.
 — `.deb` / `.rpm` (Linux x64 + arm64), `.dmg` (macOS Intel + Apple silicon), `.msi`
 (Windows). Installers are currently unsigned.
 
+![Nux dashboard](docs/screenshot.png)
+
 ## Status
 
 Working: connect to a `upsd`, pick a UPS, live dashboard (status pill,

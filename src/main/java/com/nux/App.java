@@ -44,6 +44,7 @@ import atlantafx.base.theme.PrimerDark;
 import com.nux.analysis.BatteryHealth;
 import com.nux.analysis.EnergyEstimate;
 import com.nux.analysis.TestSchedule;
+import com.nux.autostart.Autostart;
 import com.nux.command.CommandRegistry;
 import com.nux.config.Advanced;
 import com.nux.config.Config;
@@ -69,6 +70,7 @@ import com.nux.ui.Dashboard;
 import com.nux.ui.DiscoveryWindow;
 import com.nux.ui.EventsWindow;
 import com.nux.ui.HistoryWindow;
+import com.nux.ui.Screenshot;
 import com.nux.ui.SettingsWindow;
 import com.nux.ui.VariablesWindow;
 
@@ -95,6 +97,7 @@ public final class App extends Application {
 
     private Stage stage;
     private CommandPalette palette;
+    private boolean startMinimized; // --minimized: come up in the tray, not on screen
     private boolean running;
     private boolean switchingUps; // guards the combo listener during programmatic repopulation
     private UpsStatus lastStatus; // previous poll's status, for transition alerts
@@ -112,6 +115,9 @@ public final class App extends Application {
         Application.setUserAgentStylesheet(new PrimerDark().getUserAgentStylesheet());
 
         config = ConfigStore.load(configPath);
+        // Only honour --minimized when there is a tray to minimise to, or the app would
+        // start invisible with no way to reach it.
+        startMinimized = getParameters().getRaw().contains("--minimized") && config.tray();
         history = new HistoryStore(configPath.getParent(), config.advanced().historyDays());
         events = new EventLog(configPath.getParent());
         upsCombo.setPromptText("UPS");
@@ -181,13 +187,38 @@ public final class App extends Application {
                 stage.hide();
             }
         });
-        stage.show();
+        if (!startMinimized) {
+            stage.show();
+        }
 
         initTray();
         if (config.autoConnect() && !config.lastHost().isBlank()) {
             connect();
         }
         pruneHistory();
+        maybeCaptureScreenshot();
+    }
+
+    /**
+     * {@code --screenshot=<file>} saves the window as a PNG once the first poll has had
+     * time to populate it, then keeps running. Used for the README and bug reports.
+     */
+    private void maybeCaptureScreenshot() {
+        getParameters().getRaw().stream()
+                .filter(a -> a.startsWith("--screenshot="))
+                .map(a -> a.substring("--screenshot=".length()))
+                .findFirst()
+                .ifPresent(target -> {
+                    javafx.animation.PauseTransition delay =
+                            new javafx.animation.PauseTransition(javafx.util.Duration.seconds(6));
+                    delay.setOnFinished(e -> {
+                        boolean ok = Screenshot.save(stage.getScene(), Path.of(target));
+                        LOG.log(
+                                ok ? System.Logger.Level.INFO : System.Logger.Level.WARNING,
+                                (ok ? "Wrote screenshot to " : "Could not write screenshot to ") + target);
+                    });
+                    delay.play();
+                });
     }
 
     /** Applies the retention window once per launch, off the FX thread. */
@@ -232,6 +263,12 @@ public final class App extends Application {
         registry.register("app.variables", "Edit UPS settings (writable variables)…", this::openVariables);
         registry.register("app.selfTest", "Run battery self-test now", this::runSelfTestNow);
         registry.register("app.discover", "Find NUT servers on the network…", this::openDiscovery);
+        if (Autostart.isSupported()) {
+            registry.register("app.autostart", "Toggle start at login", () -> {
+                boolean now = !Autostart.isEnabled();
+                Autostart.setEnabled(now, config.tray());
+            });
+        }
         registry.register("app.quit", "Quit Nux", Platform::exit);
         for (TrayMetric metric : TrayMetric.values()) {
             registry.register(
@@ -554,17 +591,28 @@ public final class App extends Application {
         });
         Runnable quit = () -> Platform.runLater(Platform::exit);
         Thread init = new Thread(
-                () -> Trays.create(activate, quit).ifPresent(created -> Platform.runLater(() -> {
-                    if (!config.tray()) {
-                        created.dispose(); // toggled back off while we were starting
-                        return;
-                    }
-                    tray = created;
-                    if (config.closeToTray()) {
-                        Platform.setImplicitExit(false);
-                    }
-                    refreshTray();
-                })),
+                () -> {
+                    Optional<NuxTray> created = Trays.create(activate, quit);
+                    Platform.runLater(() -> {
+                        if (created.isEmpty()) {
+                            // No tray after all: a window started minimised would be
+                            // unreachable, so bring it up rather than hiding forever.
+                            if (startMinimized && !stage.isShowing()) {
+                                stage.show();
+                            }
+                            return;
+                        }
+                        if (!config.tray()) {
+                            created.get().dispose(); // toggled back off while we were starting
+                            return;
+                        }
+                        tray = created.get();
+                        if (config.closeToTray()) {
+                            Platform.setImplicitExit(false);
+                        }
+                        refreshTray();
+                    });
+                },
                 "nux-tray-init");
         init.setDaemon(true);
         init.start();
