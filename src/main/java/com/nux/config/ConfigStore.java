@@ -53,9 +53,21 @@ public final class ConfigStore {
             boolean tls = Boolean.parseBoolean(p.getProperty(prefix + "tls", "false"));
             profiles.add(new Profile(name, host, port, ups, tls));
         }
+        Advanced d = Advanced.defaults();
+        Advanced advanced = new Advanced(
+                parseInt(p.getProperty("adv.historyDays"), d.historyDays()),
+                parseDouble(p.getProperty("adv.nominalWatts"), d.nominalWatts()),
+                parseDouble(p.getProperty("adv.tariffPerKwh"), d.tariffPerKwh()),
+                p.getProperty("adv.currency", d.currency()),
+                Boolean.parseBoolean(p.getProperty("adv.selfTestEnabled", "false")),
+                parseInt(p.getProperty("adv.selfTestIntervalDays"), d.selfTestIntervalDays()),
+                p.getProperty("adv.selfTestTime", d.selfTestTime()),
+                parseLong(p.getProperty("adv.selfTestLastRun"), 0),
+                p.getProperty("adv.selfTestCommand", d.selfTestCommand()));
+
         return new Config(
                 List.copyOf(profiles), lastHost, lastPort, lastUps, lastTls, tlsTrustAll, autoConnect, tray,
-                closeToTray, trayMetric, notifications);
+                closeToTray, trayMetric, notifications, advanced);
     }
 
     public static Properties format(Config c) {
@@ -71,6 +83,16 @@ public final class ConfigStore {
         p.setProperty("closeToTray", Boolean.toString(c.closeToTray()));
         p.setProperty("trayMetric", c.trayMetric());
         p.setProperty("notifications", Boolean.toString(c.notifications()));
+        Advanced a = c.advanced();
+        p.setProperty("adv.historyDays", Integer.toString(a.historyDays()));
+        p.setProperty("adv.nominalWatts", Double.toString(a.nominalWatts()));
+        p.setProperty("adv.tariffPerKwh", Double.toString(a.tariffPerKwh()));
+        p.setProperty("adv.currency", a.currency());
+        p.setProperty("adv.selfTestEnabled", Boolean.toString(a.selfTestEnabled()));
+        p.setProperty("adv.selfTestIntervalDays", Integer.toString(a.selfTestIntervalDays()));
+        p.setProperty("adv.selfTestTime", a.selfTestTime());
+        p.setProperty("adv.selfTestLastRun", Long.toString(a.selfTestLastRun()));
+        p.setProperty("adv.selfTestCommand", a.selfTestCommand());
         StringJoiner names = new StringJoiner(",");
         for (Profile profile : c.profiles()) {
             names.add(profile.name());
@@ -117,6 +139,28 @@ public final class ConfigStore {
         }
         try {
             return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private static long parseLong(String value, long fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private static double parseDouble(String value, double fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        try {
+            return Double.parseDouble(value.trim());
         } catch (NumberFormatException e) {
             return fallback;
         }

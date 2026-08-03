@@ -31,6 +31,24 @@ runtime. JDK 25 + JavaFX 26 + Maven, modular (JPMS, module `com.nux`).
 - `com.nux.config` — pure `Config`/`Profile` records with withers +
   `ConfigStore` (properties file at `~/.nux/config.properties`, atomic
   temp+move writes, defaults on missing/malformed — never throws on load).
+  The analytics/automation settings live in a nested `Advanced` record
+  (persisted under an `adv.` prefix) so `Config`'s component list stays
+  readable; add new settings there, not as more top-level components.
+- `com.nux.store` — persistence beyond preferences: `HistoryStore`
+  (`~/.nux/history/<ups>.csv`, append-only, downsampled by
+  `shouldPersist` — a status change always writes so an outage is never
+  smoothed away — with age-based `prune`; the UPS name is server-supplied so
+  `safeName` reduces it to `[a-z0-9_-]`, dots included, rather than relying on
+  slash-stripping alone) and `EventLog` (`~/.nux/events.csv`, capped, newest
+  first for the UI). Both write on their own daemon thread; `load` is
+  synchronous and belongs off the FX thread.
+- `com.nux.analysis` — pure derivations over a snapshot/history:
+  `BatteryHealth` (firmware date formats, age, aging/replace thresholds, and
+  the UPS's own RB flag always winning), `EnergyEstimate` (measured watts,
+  else load % × nominal, VA converted by power factor; kWh integration that
+  **skips gaps over `MAX_GAP_SECONDS`** because a long gap means the app was
+  closed, not that power was drawn), and `TestSchedule` (next-run/due, with
+  "now" injected so the policy is testable).
 - `com.nux.service` — `PollService` (ONE daemon thread owns the `NutClient`;
   polls every 5 s, posts to the FX thread via `Platform.runLater` under a
   monotonically-increasing **generation guard** so stale results are dropped;
@@ -90,6 +108,10 @@ runtime. JDK 25 + JavaFX 26 + Maven, modular (JPMS, module `com.nux`).
   `Platform.runLater` with the generation guard.
 - Credentials are session-only, never persisted. The TLS trust-all mode is a
   config-file-only escape hatch (`tlsTrustAll`) — deliberately no UI for it.
+  This is why scheduled self-tests only run once the user has authenticated
+  this session; don't "fix" that by storing a password. The schedule stamps
+  `selfTestLastRun` **before** issuing the command, so a failing test can't
+  retry on every 5-second poll.
 - Surefire runs tests on the **classpath** (`useModulePath=false`).
 - Versions: `jpackage.appVersion` in the pom must stay a plain dotted number
   (jpackage rejects `-SNAPSHOT`), and **jpackage on macOS rejects a version

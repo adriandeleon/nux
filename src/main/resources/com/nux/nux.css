@@ -52,3 +52,31 @@
 .conn-label {
     -fx-text-fill: -color-fg-muted;
 }
+
+.detail-warn {
+    -fx-text-fill: -color-warning-fg;
+    -fx-font-weight: bold;
+}
+
+/* Multi-UPS overview strip */
+.overview-card {
+    -fx-background-color: -color-bg-subtle;
+    -fx-background-radius: 8;
+    -fx-border-color: -color-border-default;
+    -fx-border-radius: 8;
+    -fx-padding: 6 12 6 12;
+    -fx-cursor: hand;
+}
+
+.overview-selected {
+    -fx-border-color: -color-accent-emphasis;
+}
+
+.overview-title {
+    -fx-font-weight: bold;
+}
+
+/* Event log */
+.event-critical {
+    -fx-background-color: -color-danger-subtle;
+}

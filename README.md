@@ -26,6 +26,12 @@ window** (`Ctrl/Cmd+,`) for connection/tray/notification options, a
 **command palette** (`Ctrl/Cmd+Shift+P`), and a **selectable tray metric**
 (battery % / load % / runtime minutes).
 
+Beyond the live view it keeps **persistent history** (charts over the last
+hour to 30 days, with kWh and cost estimates), a **persistent event log**
+(exportable as CSV), **battery age/health** tracking, an editor for the UPS's
+**settable variables** (`upsrw`), **scheduled battery self-tests**, and a
+**multi-UPS overview** for servers with more than one UPS.
+
 ## Requirements
 
 - JDK 25+, Maven

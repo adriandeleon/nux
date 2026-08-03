@@ -60,3 +60,26 @@ All notable changes to Nux are documented here. The format follows
   metric switching.
 - Selectable tray metric: Battery %, Load %, or Runtime minutes (runtime shows
   an "m" suffix); switch from Settings or the palette, applied instantly.
+- Persistent history: measurements are appended to
+  `~/.nux/history/<ups>.csv` (downsampled to one row a minute, but a status
+  change always writes so outages aren't smoothed away) and pruned to a
+  configurable retention window. A History window charts battery, load, and
+  input voltage over the last hour/day/week/month.
+- Persistent event log (`~/.nux/events.csv`): every power transition, lost or
+  restored server contact, self-test, and variable change, viewable in an
+  Events window with CSV export.
+- Battery age and health from `battery.date`/`battery.mfr.date` (several
+  firmware date formats parsed), flagged as aging at 3 years and replace at 4
+  — or immediately when the UPS raises its own replace-battery flag.
+- Power and energy estimates: watts from the UPS's own reading, else load %
+  against the nominal rating (VA converted with a power factor); the History
+  window totals kWh over the selected range and, with a configured tariff,
+  the cost.
+- Settable-variable editor (NUT `upsrw`): reads `LIST RW` with each variable's
+  type, choices, and range, and offers a matching control; values are
+  validated client-side before being written.
+- Scheduled battery self-tests: run every N days at a chosen time, with the
+  result recorded in the event log. Runs only while Nux is open and after
+  credentials have been entered this session — they are never stored on disk.
+- Multi-UPS overview: on a server with several UPSes, a strip of status cards
+  appears above the gauges; click one to switch the dashboard to it.

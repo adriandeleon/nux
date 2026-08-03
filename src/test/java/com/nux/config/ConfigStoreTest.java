@@ -20,10 +20,24 @@ class ConfigStoreTest {
         Config original = Config.defaults()
                 .withLast("nas.local", 3493, "rack", true)
                 .withAutoConnect(true)
+                .withTrayMetric("runtime")
+                .withAdvanced(new Advanced(14, 900, 0.28, "€", true, 7, "02:30", 1785700000L, "test.battery.start.deep"))
                 .withProfileSaved(new Profile("desk", "localhost", 3493, "cyberpower", false))
                 .withProfileSaved(new Profile("nas", "nas.local", 3494, "", true));
         Config parsed = ConfigStore.parse(ConfigStore.format(original));
         assertEquals(original, parsed);
+    }
+
+    @Test
+    void advancedFallsBackToDefaultsWhenAbsentOrJunk() {
+        Properties p = new Properties();
+        p.setProperty("adv.historyDays", "oops");
+        p.setProperty("adv.tariffPerKwh", "");
+        Advanced a = ConfigStore.parse(p).advanced();
+        assertEquals(Advanced.defaults().historyDays(), a.historyDays());
+        assertEquals(0.0, a.tariffPerKwh());
+        assertEquals(Advanced.DEFAULT_TEST_COMMAND, a.selfTestCommand());
+        assertFalse(a.selfTestEnabled());
     }
 
     @Test

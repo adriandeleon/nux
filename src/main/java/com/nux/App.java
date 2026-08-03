@@ -2,6 +2,9 @@ package com.nux;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -38,7 +41,11 @@ import javafx.stage.Stage;
 
 import atlantafx.base.theme.PrimerDark;
 
+import com.nux.analysis.BatteryHealth;
+import com.nux.analysis.EnergyEstimate;
+import com.nux.analysis.TestSchedule;
 import com.nux.command.CommandRegistry;
+import com.nux.config.Advanced;
 import com.nux.config.Config;
 import com.nux.config.ConfigStore;
 import com.nux.config.Profile;
@@ -48,6 +55,10 @@ import com.nux.protocol.UpsSnapshot;
 import com.nux.protocol.UpsStatus;
 import com.nux.service.Notifier;
 import com.nux.service.PollService;
+import com.nux.store.EventLog;
+import com.nux.store.HistorySample;
+import com.nux.store.HistoryStore;
+import com.nux.store.UpsEvent;
 import com.nux.tray.NuxTray;
 import com.nux.tray.TrayDisplay;
 import com.nux.tray.TrayMetric;
@@ -55,7 +66,10 @@ import com.nux.tray.Trays;
 import com.nux.ui.CommandPalette;
 import com.nux.ui.CredentialsDialog;
 import com.nux.ui.Dashboard;
+import com.nux.ui.EventsWindow;
+import com.nux.ui.HistoryWindow;
 import com.nux.ui.SettingsWindow;
+import com.nux.ui.VariablesWindow;
 
 /** Nux — a simple, powerful NUT (Network UPS Tools) client. */
 public final class App extends Application {
@@ -68,6 +82,8 @@ public final class App extends Application {
     private final PollService poll = new PollService();
     private final Dashboard dashboard = new Dashboard();
     private final CommandRegistry registry = new CommandRegistry();
+    private HistoryStore history;
+    private EventLog events;
     private final ObservableList<Map.Entry<String, String>> varRows = FXCollections.observableArrayList();
 
     private final MenuButton profilesButton = new MenuButton("Profiles");
@@ -95,6 +111,8 @@ public final class App extends Application {
         Application.setUserAgentStylesheet(new PrimerDark().getUserAgentStylesheet());
 
         config = ConfigStore.load(configPath);
+        history = new HistoryStore(configPath.getParent(), config.advanced().historyDays());
+        events = new EventLog(configPath.getParent());
         upsCombo.setPromptText("UPS");
         upsCombo.setDisable(true);
         commandsButton.setDisable(true);
@@ -111,6 +129,10 @@ public final class App extends Application {
         });
         Button settingsButton = new Button("Settings…");
         settingsButton.setOnAction(e -> openSettings());
+        Button historyButton = new Button("History");
+        historyButton.setOnAction(e -> openHistory());
+        Button eventsButton = new Button("Events");
+        eventsButton.setOnAction(e -> openEvents());
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
@@ -119,6 +141,8 @@ public final class App extends Application {
                 new Label("UPS"), upsCombo,
                 connectButton,
                 commandsButton,
+                historyButton,
+                eventsButton,
                 spacer,
                 connLabel,
                 settingsButton);
@@ -133,6 +157,7 @@ public final class App extends Application {
         StackPane root = new StackPane(content); // StackPane so the palette can overlay in-scene
 
         wirePollService();
+        poll.setOnOverview(all -> dashboard.setOverview(all, upsCombo.getValue(), upsCombo::setValue));
         palette = new CommandPalette(root, registry::all);
         registerCommands();
 
@@ -161,6 +186,18 @@ public final class App extends Application {
         if (config.autoConnect() && !config.lastHost().isBlank()) {
             connect();
         }
+        pruneHistory();
+    }
+
+    /** Applies the retention window once per launch, off the FX thread. */
+    private void pruneHistory() {
+        String ups = config.lastUps();
+        if (ups == null || ups.isBlank()) {
+            return;
+        }
+        Thread pruner = new Thread(() -> history.prune(ups), "nux-history-prune");
+        pruner.setDaemon(true);
+        pruner.start();
     }
 
     @Override
@@ -169,6 +206,8 @@ public final class App extends Application {
             tray.dispose();
         }
         poll.shutdown();
+        history.shutdown();
+        events.shutdown();
         // Tray backends leave non-daemon threads behind (AWT EDT, D-Bus workers); with
         // implicit exit disabled, make process death unconditional once FX shuts down.
         System.exit(0);
@@ -187,6 +226,10 @@ public final class App extends Application {
         registry.register("app.connect", "Connect / Disconnect", this::toggleConnect);
         registry.register("app.settings", "Open Settings…", this::openSettings);
         registry.register("app.saveProfile", "Save connection as profile…", this::saveCurrentAsProfile);
+        registry.register("app.history", "Show history charts…", this::openHistory);
+        registry.register("app.events", "Show event log…", this::openEvents);
+        registry.register("app.variables", "Edit UPS settings (writable variables)…", this::openVariables);
+        registry.register("app.selfTest", "Run battery self-test now", this::runSelfTestNow);
         registry.register("app.quit", "Quit Nux", Platform::exit);
         for (TrayMetric metric : TrayMetric.values()) {
             registry.register(
@@ -278,14 +321,72 @@ public final class App extends Application {
         dashboard.update(snapshot);
         varRows.setAll(snapshot.vars().entrySet());
         lastSnapshot = snapshot;
+        history.record(snapshot.ups(), HistorySample.of(snapshot));
+        updateAnalysis(snapshot);
 
         UpsStatus status = snapshot.status();
         StatusTransitions.Alert alert = StatusTransitions.alert(lastStatus, status);
         if (alert != null) {
             notifyUser(alert.title(), alert.message(), alert.critical());
+            events.append(UpsEvent.now(snapshot.ups(), alert.critical(), alert.title(), alert.message()));
         }
         lastStatus = status;
         pushTray(TrayDisplay.of(snapshot, TrayMetric.from(config.trayMetric())), TrayDisplay.tooltip(snapshot));
+        maybeRunScheduledTest(snapshot.ups());
+    }
+
+    /** Battery age/health and estimated power draw, derived from the latest snapshot. */
+    private void updateAnalysis(UpsSnapshot snapshot) {
+        LocalDate today = LocalDate.now();
+        Optional<LocalDate> batteryDate = BatteryHealth.dateOf(snapshot);
+        BatteryHealth.Status health =
+                BatteryHealth.status(batteryDate, today, snapshot.status().replaceBattery());
+        String ageText = batteryDate
+                .map(d -> BatteryHealth.ageLabel(BatteryHealth.ageMonths(d, today)))
+                .orElse(health == BatteryHealth.Status.REPLACE ? "" : "—");
+        if (health == BatteryHealth.Status.REPLACE) {
+            ageText = ageText.isEmpty() ? "replace" : ageText + " — replace";
+        } else if (health == BatteryHealth.Status.AGING) {
+            ageText = ageText + " — aging";
+        }
+        dashboard.setBatteryAge(ageText, health == BatteryHealth.Status.AGING || health == BatteryHealth.Status.REPLACE);
+        dashboard.setPower(EnergyEstimate.watts(snapshot, config.advanced().nominalWatts())
+                .map(w -> String.format("%.0f W", w))
+                .orElse("—"));
+    }
+
+    /**
+     * Fires the scheduled self-test when it comes due. Credentials are session-only by
+     * design, so a schedule can only run once the user has authenticated at least once;
+     * lastRun is stamped *before* the command so a failing test can't retry every tick.
+     */
+    private void maybeRunScheduledTest(String ups) {
+        Advanced adv = config.advanced();
+        if (!adv.selfTestEnabled() || authPass == null || authUser == null) {
+            return;
+        }
+        if (!TestSchedule.isDue(
+                adv.selfTestLastRun(),
+                adv.selfTestIntervalDays(),
+                TestSchedule.parseTime(adv.selfTestTime()),
+                ZoneId.systemDefault(),
+                Instant.now())) {
+            return;
+        }
+        saveConfig(config.withAdvanced(adv.withSelfTestLastRun(Instant.now().getEpochSecond())));
+        poll.runInstCmd(ups, authUser, authPass, adv.selfTestCommand(), (ok, message) -> events.append(
+                UpsEvent.now(
+                        ups,
+                        !ok,
+                        ok ? "Scheduled self-test started" : "Scheduled self-test failed",
+                        ok ? adv.selfTestCommand() : friendlyCommandError(message))));
+    }
+
+    private void runSelfTestNow() {
+        String ups = upsCombo.getValue();
+        if (ups != null) {
+            runCommand(config.advanced().selfTestCommand());
+        }
     }
 
     private void onCommands(List<String> commands) {
@@ -308,7 +409,74 @@ public final class App extends Application {
         if (running && !commLost) {
             commLost = true;
             notifyUser("Nux", "Lost contact with the NUT server: " + reason, false);
+            events.append(UpsEvent.now(upsLabel(), false, "Lost server contact", reason));
         }
+    }
+
+    private String upsLabel() {
+        return upsCombo.getValue() != null ? upsCombo.getValue() : config.lastHost();
+    }
+
+    // --- Feature windows ------------------------------------------------------
+
+    private void openHistory() {
+        String ups = upsCombo.getValue() != null ? upsCombo.getValue() : config.lastUps();
+        if (ups == null || ups.isBlank()) {
+            return;
+        }
+        double watts = lastSnapshot != null
+                ? EnergyEstimate.nominalWatts(lastSnapshot, config.advanced().nominalWatts()).orElse(0.0)
+                : config.advanced().nominalWatts();
+        HistoryWindow.show(stage, history, ups, config.advanced(), watts);
+    }
+
+    private void openEvents() {
+        EventsWindow.show(stage, events);
+    }
+
+    private void openVariables() {
+        String ups = upsCombo.getValue();
+        if (ups == null) {
+            return;
+        }
+        poll.loadRwVariables(ups, variables -> {
+            if (variables.isEmpty()) {
+                Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                alert.setTitle("No writable variables");
+                alert.setHeaderText("This UPS exposes no settable variables");
+                alert.setContentText("Many consumer models are read-only over NUT.");
+                alert.show();
+                return;
+            }
+            VariablesWindow.show(stage, ups, variables, this::setVariable, () -> {});
+        });
+    }
+
+    /** Applies a writable variable, prompting for credentials the same way commands do. */
+    private void setVariable(String name, String value, java.util.function.BiConsumer<Boolean, String> onResult) {
+        String ups = upsCombo.getValue();
+        if (ups == null) {
+            onResult.accept(false, "Not connected");
+            return;
+        }
+        if (authPass == null) {
+            Optional<CredentialsDialog.Credentials> creds = CredentialsDialog.show(
+                    "upsd user with permission to set variables (see upsd.users)", authUser != null ? authUser : "");
+            if (creds.isEmpty() || creds.get().user().isEmpty()) {
+                onResult.accept(false, "Cancelled");
+                return;
+            }
+            authUser = creds.get().user();
+            authPass = creds.get().password();
+        }
+        poll.setVariable(ups, authUser, authPass, name, value, (ok, message) -> {
+            if (!ok) {
+                authPass = null; // could be bad credentials; re-prompt next time
+            } else {
+                events.append(UpsEvent.now(ups, false, "Variable changed", name + " = " + value));
+            }
+            onResult.accept(ok, ok ? message : friendlyCommandError(message));
+        });
     }
 
     private void notifyUser(String title, String message, boolean critical) {

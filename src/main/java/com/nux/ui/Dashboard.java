@@ -1,6 +1,8 @@
 package com.nux.ui;
 
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -40,6 +42,9 @@ public final class Dashboard extends VBox {
     private final Label outputVoltage = detailValue();
     private final Label batteryVoltage = detailValue();
     private final Label serial = detailValue();
+    private final Label batteryAge = detailValue();
+    private final Label power = detailValue();
+    private final HBox overview = new HBox(8);
 
     public Dashboard() {
         setSpacing(18);
@@ -66,8 +71,51 @@ public final class Dashboard extends VBox {
         details.setAlignment(Pos.CENTER);
         details.addRow(0, detailName("Input"), inputVoltage, detailName("Output"), outputVoltage);
         details.addRow(1, detailName("Battery"), batteryVoltage, detailName("Serial"), serial);
+        details.addRow(2, detailName("Battery age"), batteryAge, detailName("Power"), power);
 
-        getChildren().addAll(header, gauges, voltageStrip, details);
+        overview.setAlignment(Pos.CENTER);
+        overview.setVisible(false);
+        overview.setManaged(false); // only takes space on a multi-UPS server
+
+        getChildren().addAll(header, overview, gauges, voltageStrip, details);
+    }
+
+    /** Battery age/health text; {@code emphasis} styles it as a warning when replacement is due. */
+    public void setBatteryAge(String text, boolean emphasis) {
+        batteryAge.setText(text);
+        batteryAge.getStyleClass().remove("detail-warn");
+        if (emphasis) {
+            batteryAge.getStyleClass().add("detail-warn");
+        }
+    }
+
+    public void setPower(String text) {
+        power.setText(text);
+    }
+
+    /** The multi-UPS strip: one clickable card per UPS, hidden when the server has only one. */
+    public void setOverview(Map<String, UpsSnapshot> all, String selected, Consumer<String> onSelect) {
+        overview.getChildren().clear();
+        boolean show = all != null && all.size() > 1;
+        overview.setVisible(show);
+        overview.setManaged(show);
+        if (!show) {
+            return;
+        }
+        all.forEach((name, snapshot) -> {
+            Label title = new Label(name);
+            title.getStyleClass().add("overview-title");
+            Label state = new Label(snapshot.status().label()
+                    + snapshot.chargePercent().map(c -> "  " + Math.round(c) + "%").orElse(""));
+            state.getStyleClass().add("detail-name");
+            VBox card = new VBox(2, title, state);
+            card.getStyleClass().add("overview-card");
+            if (name.equals(selected)) {
+                card.getStyleClass().add("overview-selected");
+            }
+            card.setOnMouseClicked(e -> onSelect.accept(name));
+            overview.getChildren().add(card);
+        });
     }
 
     public void update(UpsSnapshot s) {
@@ -114,6 +162,9 @@ public final class Dashboard extends VBox {
         outputVoltage.setText("—");
         batteryVoltage.setText("—");
         serial.setText("—");
+        setBatteryAge("—", false);
+        power.setText("—");
+        setOverview(null, null, name -> {});
     }
 
     /** Clears all history — call when switching to a different UPS or server. */

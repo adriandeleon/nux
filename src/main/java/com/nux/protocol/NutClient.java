@@ -19,6 +19,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
@@ -164,6 +165,84 @@ public final class NutClient implements Closeable {
             }
         }
         return cmds;
+    }
+
+    /**
+     * The writable variables of one UPS, fully described (type, choices, range) so the
+     * UI can offer a safe editor. One round trip per variable for the type, plus one
+     * more for enum/range detail — fine for the handful of RW vars a UPS exposes.
+     */
+    public List<RwVariable> listRw(String ups) throws IOException {
+        LinkedHashMap<String, String> values = new LinkedHashMap<>();
+        for (String line : listBlock("LIST RW " + ups)) {
+            List<String> t = NutParser.tokens(line);
+            if (t.size() >= 4 && t.get(0).equals("RW")) {
+                values.put(t.get(2), t.get(3));
+            }
+        }
+        List<RwVariable> out = new ArrayList<>();
+        for (Map.Entry<String, String> e : values.entrySet()) {
+            out.add(describeRw(ups, e.getKey(), e.getValue()));
+        }
+        return out;
+    }
+
+    private RwVariable describeRw(String ups, String name, String value) throws IOException {
+        List<String> typeTokens = varType(ups, name);
+        RwVariable.Kind kind = RwVariable.kindOf(typeTokens);
+        int maxLength = RwVariable.maxLengthOf(typeTokens);
+        return switch (kind) {
+            case ENUM -> new RwVariable(name, value, kind, listEnum(ups, name), null, null, maxLength);
+            case RANGE -> {
+                double[] range = listRange(ups, name);
+                yield new RwVariable(
+                        name, value, kind, List.of(),
+                        range == null ? null : range[0], range == null ? null : range[1], maxLength);
+            }
+            default -> new RwVariable(name, value, kind, List.of(), null, null, maxLength);
+        };
+    }
+
+    /** The type flag tokens of a variable ({@code ENUM}, {@code STRING:8}, {@code NUMBER}, ...). */
+    public List<String> varType(String ups, String name) throws IOException {
+        send("GET TYPE " + ups + " " + name);
+        String line = readLine();
+        if (NutParser.isErr(line)) {
+            throw new NutException(NutParser.errCode(line));
+        }
+        List<String> t = NutParser.tokens(line);
+        return t.size() > 3 ? List.copyOf(t.subList(3, t.size())) : List.of();
+    }
+
+    public List<String> listEnum(String ups, String name) throws IOException {
+        List<String> out = new ArrayList<>();
+        for (String line : listBlock("LIST ENUM " + ups + " " + name)) {
+            List<String> t = NutParser.tokens(line);
+            if (t.size() >= 4 && t.get(0).equals("ENUM")) {
+                out.add(t.get(3));
+            }
+        }
+        return out;
+    }
+
+    /** The {@code [min, max]} of a RANGE variable, or null when the server reports none. */
+    public double[] listRange(String ups, String name) throws IOException {
+        for (String line : listBlock("LIST RANGE " + ups + " " + name)) {
+            List<String> t = NutParser.tokens(line);
+            if (t.size() >= 5 && t.get(0).equals("RANGE")) {
+                try {
+                    return new double[] {Double.parseDouble(t.get(3)), Double.parseDouble(t.get(4))};
+                } catch (NumberFormatException e) {
+                    return null;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Writes a variable (needs auth); the value is quoted so spaces survive. */
+    public void setVar(String ups, String name, String value) throws IOException {
+        expectOk("SET VAR " + ups + " " + name + " \"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"");
     }
 
     public String getVar(String ups, String name) throws IOException {

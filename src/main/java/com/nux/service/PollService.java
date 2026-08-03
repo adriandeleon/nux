@@ -3,7 +3,9 @@ package com.nux.service;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -14,6 +16,7 @@ import javafx.application.Platform;
 
 import com.nux.protocol.NutClient;
 import com.nux.protocol.NutException;
+import com.nux.protocol.RwVariable;
 import com.nux.protocol.TlsMode;
 import com.nux.protocol.UpsDevice;
 import com.nux.protocol.UpsSnapshot;
@@ -25,8 +28,9 @@ import com.nux.protocol.UpsSnapshot;
  * so results from a superseded configuration are dropped on arrival. While started, a lost
  * connection is retried on every tick (the poll interval doubles as the reconnect backoff).
  *
- * <p>Instant commands ({@link #runInstCmd}) run on the same thread and connection, so they
- * serialize naturally with polling and authentication state stays connection-accurate.
+ * <p>Authenticated actions ({@link #runInstCmd}, {@link #setVariable}) and RW-variable
+ * discovery run on the same thread and connection, so they serialize naturally with
+ * polling and authentication state stays connection-accurate.
  */
 public final class PollService {
 
@@ -46,10 +50,12 @@ public final class PollService {
     private boolean wasConnected;
     private String authedUser; // non-null once USERNAME/PASSWORD succeeded on this connection
     private String cmdTarget; // the UPS whose command list was last fetched and announced
+    private List<UpsDevice> devices = List.of();
 
     // FX-thread confined:
     private Consumer<List<UpsDevice>> onConnected = devices -> {};
     private Consumer<UpsSnapshot> onSnapshot = snapshot -> {};
+    private Consumer<Map<String, UpsSnapshot>> onOverview = all -> {};
     private Consumer<List<String>> onCommands = commands -> {};
     private Consumer<String> onDisconnected = reason -> {};
 
@@ -59,6 +65,11 @@ public final class PollService {
 
     public void setOnSnapshot(Consumer<UpsSnapshot> handler) {
         this.onSnapshot = handler;
+    }
+
+    /** Every UPS on the server, for the multi-UPS overview (only fires when there's more than one). */
+    public void setOnOverview(Consumer<Map<String, UpsSnapshot>> handler) {
+        this.onOverview = handler;
     }
 
     public void setOnCommands(Consumer<List<String>> handler) {
@@ -93,7 +104,37 @@ public final class PollService {
      * The result callback always fires on the FX thread — success or failure — because a
      * user action deserves an answer even if polling has since been reconfigured.
      */
-    public void runInstCmd(String ups, String user, String password, String command, BiConsumer<Boolean, String> onResult) {
+    public void runInstCmd(
+            String ups, String user, String password, String command, BiConsumer<Boolean, String> onResult) {
+        authenticated(user, password, onResult, c -> c.instCmd(ups, command));
+    }
+
+    /** Writes a settable variable (needs the same instcmds-style upsd permissions). */
+    public void setVariable(
+            String ups, String user, String password, String name, String value, BiConsumer<Boolean, String> onResult) {
+        authenticated(user, password, onResult, c -> c.setVar(ups, name, value));
+    }
+
+    /** Fetches the writable variables with their types/choices; empty list on failure. */
+    public void loadRwVariables(String ups, Consumer<List<RwVariable>> onResult) {
+        long gen = generation;
+        executor.execute(() -> {
+            List<RwVariable> vars = List.of();
+            if (gen == generation && client != null) {
+                try {
+                    vars = client.listRw(ups);
+                } catch (IOException e) {
+                    dropConnection();
+                }
+            }
+            List<RwVariable> result = vars;
+            Platform.runLater(() -> onResult.accept(result));
+        });
+    }
+
+    /** Shared auth-then-act path for the two mutating operations. */
+    private void authenticated(
+            String user, String password, BiConsumer<Boolean, String> onResult, ClientAction action) {
         long gen = generation;
         executor.execute(() -> {
             if (gen != generation || client == null) {
@@ -110,7 +151,7 @@ public final class PollService {
                     fxResult(onResult, false, "Already authenticated as " + authedUser + " — reconnect to switch user");
                     return;
                 }
-                client.instCmd(ups, command);
+                action.run(client);
                 fxResult(onResult, true, "OK");
             } catch (NutException e) {
                 // A half-done auth (USERNAME ok, PASSWORD refused) poisons the connection;
@@ -124,6 +165,10 @@ public final class PollService {
         });
     }
 
+    private interface ClientAction {
+        void run(NutClient client) throws IOException;
+    }
+
     private void tick(long gen, String host, int port, String ups, TlsMode tls) {
         if (gen != generation) {
             return; // superseded configuration; its fixed-delay task keeps firing but does nothing
@@ -131,9 +176,10 @@ public final class PollService {
         try {
             if (client == null) {
                 client = NutClient.connect(host, port, TIMEOUT, tls);
-                List<UpsDevice> devices = client.listUps();
+                devices = client.listUps();
                 wasConnected = true;
-                fx(gen, () -> onConnected.accept(devices));
+                List<UpsDevice> found = devices;
+                fx(gen, () -> onConnected.accept(found));
                 if (ups == null && !devices.isEmpty()) {
                     ups = devices.getFirst().name();
                 }
@@ -149,6 +195,9 @@ public final class PollService {
                 cmdTarget = target;
                 fx(gen, () -> onCommands.accept(commands));
             }
+            if (devices.size() > 1) {
+                pollOverview(gen, target, snapshot);
+            }
         } catch (IOException e) {
             dropConnection();
             String reason = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
@@ -160,8 +209,25 @@ public final class PollService {
         }
     }
 
+    /** Adds the other UPSes to the just-polled one; a single failure doesn't sink the tick. */
+    private void pollOverview(long gen, String target, UpsSnapshot targetSnapshot) {
+        Map<String, UpsSnapshot> all = new LinkedHashMap<>();
+        for (UpsDevice device : devices) {
+            if (device.name().equals(target)) {
+                all.put(target, targetSnapshot);
+                continue;
+            }
+            try {
+                all.put(device.name(), new UpsSnapshot(device.name(), client.listVars(device.name()), Instant.now()));
+            } catch (IOException e) {
+                return; // connection trouble; the next tick's main poll will surface it
+            }
+        }
+        fx(gen, () -> onOverview.accept(all));
+    }
+
     private String firstUpsName() throws IOException {
-        List<UpsDevice> devices = client.listUps();
+        devices = client.listUps();
         return devices.isEmpty() ? null : devices.getFirst().name();
     }
 
