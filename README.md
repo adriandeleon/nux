@@ -26,7 +26,12 @@ It is built with the help of AI coding tools.
 
 📥 **Downloads:** [latest release](https://github.com/adriandeleon/nux/releases/latest)
 — `.deb` / `.rpm` (Linux x64 + arm64), `.dmg` (macOS Intel + Apple silicon), `.msi`
-(Windows). Installers are currently unsigned.
+(Windows). Linux and macOS are confirmed working on real hardware; the Windows
+installer builds in CI but has not been run by anyone yet.
+
+Installers are **unsigned**, so first launch needs a nudge: on macOS right-click
+the app and choose *Open* (or `xattr -d com.apple.quarantine /Applications/Nux.app`),
+and on Windows click through the SmartScreen warning. Signing is on the roadmap.
 
 The interface speaks **six languages** — see [Languages](#languages).
 

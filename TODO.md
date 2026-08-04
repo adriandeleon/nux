@@ -11,8 +11,11 @@ but have never been exercised against real hardware or a real server configurati
       driver failure surfaces as a failure and not as a silent success.
 - [ ] **Multi-UPS overview (unverified).** Correct by construction, but no test rig
       with more than one UPS on a single `upsd` has been available.
-- [ ] **Windows and macOS installers (unverified beyond building).** The DMG and MSI
-      build cleanly in CI; nobody has installed and launched them.
+- [x] ~~**macOS installer.**~~ Verified on real hardware: the DMG installs and Nux
+      runs. That also clears the hand-written `.icns` container, the `0.x` → `1.x`
+      `CFBundleVersion` bump jpackage requires, and the AWT tray path.
+- [ ] **Windows installer (unverified beyond building).** The MSI builds cleanly in
+      CI; nobody has installed and launched it.
 - [ ] **Windows notifications (unverified).** They now route through
       `TrayIcon.displayMessage`, which is the documented native path, but no one has
       seen one appear on a real Windows desktop.
@@ -23,7 +26,6 @@ but have never been exercised against real hardware or a real server configurati
 ## Known gaps
 
 - [ ] The app theme is hardcoded to AtlantaFX PrimerDark; no light/dark switch.
-- [ ] No localisation: all strings are English literals in the source.
 
 ## Distribution
 
