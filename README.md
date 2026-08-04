@@ -28,6 +28,8 @@ It is built with the help of AI coding tools.
 — `.deb` / `.rpm` (Linux x64 + arm64), `.dmg` (macOS Intel + Apple silicon), `.msi`
 (Windows). Installers are currently unsigned.
 
+The interface speaks **six languages** — see [Languages](#languages).
+
 ![Nux dashboard](docs/screenshot.png)
 
 ## Status
@@ -40,11 +42,12 @@ voltages) polling every 5 s with automatic reconnect, a raw variables table,
 (on battery / low battery / power restored / replace battery / forced
 shutdown, plus lost/restored server contact) via `notify-send` on Linux
 (falling back to `gdbus` when libnotify isn't installed) and `osascript` on
-macOS. Also: **instant commands** (`INSTCMD` — beeper toggle, battery
-self-test, …) from a Commands menu with confirmation and session-cached
-authentication, **STARTTLS** (per-connection TLS toggle), a **settings
-window** (`Ctrl/Cmd+,`) for connection/tray/notification options, a
-**command palette** (`Ctrl/Cmd+Shift+P`), and a **selectable tray metric**
+macOS (Windows raises them through the tray icon, which is its native path).
+Also: **instant commands** (`INSTCMD` — beeper toggle, battery self-test, …)
+from a Commands menu with confirmation and session-cached authentication,
+**STARTTLS** (per-connection TLS toggle), a **settings window**
+(`Ctrl/Cmd+,`) for connection/tray/notification/language options, a **command
+palette** (`Ctrl/Cmd+Shift+P`), and a **selectable tray metric**
 (battery % / load % / runtime minutes).
 
 Beyond the live view it keeps **persistent history** (charts over the last
@@ -54,6 +57,48 @@ hour to 30 days, with kWh and cost estimates), a **persistent event log**
 **multi-UPS overview** for servers with more than one UPS, **command
 tracking** (NUT 2.8 — reports what the UPS actually did, not just that the
 request was accepted), and **LAN discovery** of NUT servers.
+
+It also **starts with your session** and keeps a **single instance** —
+launching Nux again raises the running window instead of starting a rival copy
+polling the same UPS.
+
+## Languages
+
+The interface is available in **English, Spanish, French, German, Portuguese
+and Italian**:
+
+| | | |
+|---|---|---|
+| 🇬🇧 English | 🇪🇸 Español | 🇫🇷 Français |
+| 🇩🇪 Deutsch | 🇵🇹 Português | 🇮🇹 Italiano |
+
+Nux follows your system language when it is one of these, and falls back to
+English otherwise. To choose explicitly, use **Settings → Tray → Language**;
+the change applies on the next launch, because the catalogue is loaded once at
+startup. `Locale.setDefault` follows the same choice, so JavaFX's own OK/Cancel
+buttons match rather than staying English.
+
+### Adding a language
+
+Translations are plain UTF-8 properties files — no build step, no tooling:
+
+1. Copy `src/main/resources/com/nux/i18n/messages.properties` (the English
+   base, which is also the fallback for any key you leave out) to
+   `messages_<lang>.properties`.
+2. Translate the values, leaving the keys alone.
+3. Add the ISO code and the language's own name to `Messages.LANGUAGES`.
+
+`MessagesTest` then holds you to it: every bundled language must define
+**exactly** the base key set, no value may be blank, and no translation may
+drop a `{0}` placeholder.
+
+> **One trap worth knowing.** In values containing `{0}`, a lone apostrophe is
+> an escape character (`MessageFormat`) and silently swallows the placeholder —
+> so `l'onduleur … {0}` must be written `l''onduleur … {0}`. This bites French,
+> Italian and Portuguese in particular. The test formats every parameterised
+> value and fails if its placeholder disappears, so the mistake cannot ship.
+
+Contributions of further languages are welcome.
 
 ## Requirements
 
@@ -66,10 +111,12 @@ request was accepted), and **LAN discovery** of NUT servers.
 ./mvnw javafx:run
 ```
 
-Tests (pure protocol core, no toolkit needed):
+Tests — pure logic plus headless UI tests (JavaFX 26's built-in headless
+platform, so no display or Xvfb is needed):
 
 ```bash
-./mvnw test
+./mvnw test                      # everything
+./mvnw test -DexcludedGroups=fx  # pure logic only
 ```
 
 Native package (jlink runtime + jpackage; all dependencies are real JPMS
@@ -124,7 +171,7 @@ entry with `instcmds` permission:
 
 ### TLS
 
-The toolbar TLS checkbox upgrades the connection with the NUT `STARTTLS`
+The TLS checkbox in Settings → Connection upgrades the connection with the NUT `STARTTLS`
 command; the server needs `CERTFILE` configured in `upsd.conf`. Certificates
 are verified against the system truststore by default. For the common
 self-signed upsd cert, set `tlsTrustAll=true` by hand in
@@ -143,6 +190,10 @@ server, which is why there's deliberately no UI checkbox for it.
   posts snapshots to the FX thread with a generation guard, reconnects with
   the poll interval as backoff), `History` (sparkline ring buffer),
   `Notifier` (best-effort OS notifications, off-thread).
+- `com.nux.i18n` — `Messages`, the UI string catalogue (UTF-8 properties read
+  from this module's own resources, so no `module-info` opens and no encoding
+  ambiguity). The pure cores return catalogue *keys* rather than English, so
+  status and alert decisions stay testable and language-independent.
 - `com.nux.ui` / `com.nux.App` — the JavaFX dashboard (AtlantaFX-themed).
 
 ## Roadmap
@@ -168,7 +219,14 @@ server, which is why there's deliberately no UI checkbox for it.
       DMG (macOS x64 + arm64), MSI (Windows) and attaches them, with
       checksums, to a GitHub release (`.github/workflows/release.yml`;
       installers are unsigned — signing/notarization is a follow-up)
-- [ ] Windows toast notifications
+- [x] Windows notifications (via the tray icon — Windows has no `notify-send`
+      equivalent)
+- [x] Start at login, and single-instance (a second launch raises the running
+      window)
+- [x] Multi-language UI: English, Spanish, French, German, Portuguese, Italian
+- [ ] Signed and notarised installers (needs an Apple Developer ID and a
+      Windows code-signing certificate)
+- [ ] Package-manager distribution (Homebrew cask, winget, Flatpak/AppImage)
 
 ## Project files
 
