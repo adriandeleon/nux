@@ -1,5 +1,7 @@
 package com.nux.tray;
 
+import static com.nux.i18n.Messages.tr;
+
 import java.awt.EventQueue;
 import java.awt.MenuItem;
 import java.awt.PopupMenu;
@@ -32,11 +34,11 @@ public final class AwtTray implements NuxTray {
         }
         tray = SystemTray.getSystemTray();
 
-        statusItem = new MenuItem("Not connected");
+        statusItem = new MenuItem(tr("dashboard.notConnected"));
         statusItem.setEnabled(false);
-        MenuItem open = new MenuItem("Open Nux");
+        MenuItem open = new MenuItem(tr("tray.open"));
         open.addActionListener(e -> onActivate.run());
-        MenuItem quit = new MenuItem("Quit Nux");
+        MenuItem quit = new MenuItem(tr("tray.quit"));
         quit.addActionListener(e -> onQuit.run());
         PopupMenu menu = new PopupMenu();
         menu.add(statusItem);

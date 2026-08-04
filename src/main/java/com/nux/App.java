@@ -1,11 +1,14 @@
 package com.nux;
 
+import static com.nux.i18n.Messages.tr;
+
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -50,6 +53,7 @@ import com.nux.config.Advanced;
 import com.nux.config.Config;
 import com.nux.config.ConfigStore;
 import com.nux.config.Profile;
+import com.nux.i18n.Messages;
 import com.nux.instance.SingleInstance;
 import com.nux.protocol.StatusTransitions;
 import com.nux.protocol.UpsDevice;
@@ -91,10 +95,10 @@ public final class App extends Application {
     private EventLog events;
     private final ObservableList<Map.Entry<String, String>> varRows = FXCollections.observableArrayList();
 
-    private final MenuButton profilesButton = new MenuButton("Profiles");
+    private final MenuButton profilesButton = new MenuButton(tr("toolbar.profiles"));
     private final ComboBox<String> upsCombo = new ComboBox<>();
-    private final Button connectButton = new Button("Connect");
-    private final MenuButton commandsButton = new MenuButton("Commands");
+    private final Button connectButton = new Button(tr("toolbar.connect"));
+    private final MenuButton commandsButton = new MenuButton(tr("toolbar.commands"));
     private final Label connLabel = new Label();
 
     private Stage stage;
@@ -137,21 +141,21 @@ public final class App extends Application {
                 saveConfig(config.withLast(config.lastHost(), config.lastPort(), selected, config.lastTls()));
             }
         });
-        Button settingsButton = new Button("Settings…");
+        Button settingsButton = new Button(tr("toolbar.settings"));
         settingsButton.setOnAction(e -> openSettings());
         Button aboutButton = new Button("?");
-        aboutButton.setTooltip(new javafx.scene.control.Tooltip("About " + AppInfo.NAME));
+        aboutButton.setTooltip(new javafx.scene.control.Tooltip(tr("toolbar.about", AppInfo.NAME)));
         aboutButton.setOnAction(e -> openAbout());
-        Button historyButton = new Button("History");
+        Button historyButton = new Button(tr("toolbar.history"));
         historyButton.setOnAction(e -> openHistory());
-        Button eventsButton = new Button("Events");
+        Button eventsButton = new Button(tr("toolbar.events"));
         eventsButton.setOnAction(e -> openEvents());
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         ToolBar toolbar = new ToolBar(
                 profilesButton,
-                new Label("UPS"), upsCombo,
+                new Label(tr("toolbar.ups")), upsCombo,
                 connectButton,
                 commandsButton,
                 historyButton,
@@ -161,7 +165,7 @@ public final class App extends Application {
                 settingsButton,
                 aboutButton);
 
-        SplitPane split = new SplitPane(dashboard, new TitledPane("All variables", buildVarTable()));
+        SplitPane split = new SplitPane(dashboard, new TitledPane(tr("dashboard.allVariables"), buildVarTable()));
         split.setOrientation(Orientation.VERTICAL);
         split.setDividerPositions(0.68);
 
@@ -291,22 +295,22 @@ public final class App extends Application {
     // --- Commands (palette) ---------------------------------------------------
 
     private void registerCommands() {
-        registry.register("app.connect", "Connect / Disconnect", this::toggleConnect);
-        registry.register("app.settings", "Open Settings…", this::openSettings);
-        registry.register("app.saveProfile", "Save connection as profile…", this::saveCurrentAsProfile);
-        registry.register("app.history", "Show history charts…", this::openHistory);
-        registry.register("app.events", "Show event log…", this::openEvents);
-        registry.register("app.variables", "Edit UPS settings (writable variables)…", this::openVariables);
-        registry.register("app.selfTest", "Run battery self-test now", this::runSelfTestNow);
-        registry.register("app.discover", "Find NUT servers on the network…", this::openDiscovery);
+        registry.register("app.connect", tr("command.connect"), this::toggleConnect);
+        registry.register("app.settings", tr("command.settings"), this::openSettings);
+        registry.register("app.saveProfile", tr("command.saveProfile"), this::saveCurrentAsProfile);
+        registry.register("app.history", tr("command.history"), this::openHistory);
+        registry.register("app.events", tr("command.events"), this::openEvents);
+        registry.register("app.variables", tr("command.variables"), this::openVariables);
+        registry.register("app.selfTest", tr("command.selfTest"), this::runSelfTestNow);
+        registry.register("app.discover", tr("command.discover"), this::openDiscovery);
         if (Autostart.isSupported()) {
             registry.register("app.autostart", "Toggle start at login", () -> {
                 boolean now = !Autostart.isEnabled();
                 Autostart.setEnabled(now, config.tray());
             });
         }
-        registry.register("app.about", "About Nux", this::openAbout);
-        registry.register("app.quit", "Quit Nux", Platform::exit);
+        registry.register("app.about", tr("command.about"), this::openAbout);
+        registry.register("app.quit", tr("command.quit"), Platform::exit);
         for (TrayMetric metric : TrayMetric.values()) {
             registry.register(
                     "tray.metric." + metric.key(), "Tray: show " + metric.label(), () -> setTrayMetric(metric));
@@ -341,7 +345,7 @@ public final class App extends Application {
 
     private void connect() {
         running = true;
-        connectButton.setText("Disconnect");
+        connectButton.setText(tr("toolbar.disconnect"));
         String ups = upsCombo.getValue() != null
                 ? upsCombo.getValue()
                 : (config.lastUps().isBlank() ? null : config.lastUps());
@@ -351,7 +355,7 @@ public final class App extends Application {
     private void disconnect() {
         running = false;
         poll.stop();
-        connectButton.setText("Connect");
+        connectButton.setText(tr("toolbar.connect"));
         upsCombo.setDisable(true);
         commandsButton.setDisable(true);
         dashboard.showDisconnected("Stopped");
@@ -386,7 +390,7 @@ public final class App extends Application {
         }
         upsCombo.setDisable(upsCombo.getItems().isEmpty());
         if (commLost) {
-            notifyUser("Nux", "Communication with the NUT server restored.", false);
+            notifyUser("Nux", tr("alert.contactRestored"), false);
             commLost = false;
         }
         saveConfig(config.withLast(config.lastHost(), config.lastPort(), upsCombo.getValue(), config.lastTls())
@@ -403,8 +407,11 @@ public final class App extends Application {
         UpsStatus status = snapshot.status();
         StatusTransitions.Alert alert = StatusTransitions.alert(lastStatus, status);
         if (alert != null) {
-            notifyUser(alert.title(), alert.message(), alert.critical());
-            events.append(UpsEvent.now(snapshot.ups(), alert.critical(), alert.title(), alert.message()));
+            // The alert carries catalogue keys; resolve them once, here at the edge.
+            String title = tr(alert.titleKey());
+            String body = tr(alert.bodyKey());
+            notifyUser(title, body, alert.critical());
+            events.append(UpsEvent.now(snapshot.ups(), alert.critical(), title, body));
         }
         lastStatus = status;
         pushTray(TrayDisplay.of(snapshot, TrayMetric.from(config.trayMetric())), TrayDisplay.tooltip(snapshot));
@@ -454,7 +461,7 @@ public final class App extends Application {
                 UpsEvent.now(
                         ups,
                         !ok,
-                        ok ? "Scheduled self-test started" : "Scheduled self-test failed",
+                        ok ? tr("alert.selfTestStarted") : tr("alert.selfTestFailed"),
                         ok ? adv.selfTestCommand() : friendlyCommandError(message))));
     }
 
@@ -481,10 +488,10 @@ public final class App extends Application {
         dashboard.showDisconnected(reason);
         commandsButton.setDisable(true);
         lastSnapshot = null;
-        pushTray(TrayDisplay.disconnected(), "Nux — disconnected");
+        pushTray(TrayDisplay.disconnected(), tr("tray.disconnected"));
         if (running && !commLost) {
             commLost = true;
-            notifyUser("Nux", "Lost contact with the NUT server: " + reason, false);
+            notifyUser("Nux", tr("alert.contactLost", reason), false);
             events.append(UpsEvent.now(upsLabel(), false, "Lost server contact", reason));
         }
     }
@@ -542,9 +549,9 @@ public final class App extends Application {
         poll.loadRwVariables(ups, variables -> {
             if (variables.isEmpty()) {
                 Alert alert = new Alert(Alert.AlertType.INFORMATION);
-                alert.setTitle("No writable variables");
-                alert.setHeaderText("This UPS exposes no settable variables");
-                alert.setContentText("Many consumer models are read-only over NUT.");
+                alert.setTitle(tr("variables.noneTitle"));
+                alert.setHeaderText(tr("variables.noneHeader"));
+                alert.setContentText(tr("variables.noneBody"));
                 alert.show();
                 return;
             }
@@ -557,14 +564,14 @@ public final class App extends Application {
     private void setVariable(String name, String value, java.util.function.BiConsumer<Boolean, String> onResult) {
         String ups = upsCombo.getValue();
         if (ups == null) {
-            onResult.accept(false, "Not connected");
+            onResult.accept(false, tr("error.notConnected"));
             return;
         }
         if (authPass == null) {
             Optional<CredentialsDialog.Credentials> creds = CredentialsDialog.show(
-                    "upsd user with permission to set variables (see upsd.users)", authUser != null ? authUser : "");
+                    tr("dialog.credentials.setvar"), authUser != null ? authUser : "");
             if (creds.isEmpty() || creds.get().user().isEmpty()) {
-                onResult.accept(false, "Cancelled");
+                onResult.accept(false, tr("error.cancelled"));
                 return;
             }
             authUser = creds.get().user();
@@ -574,7 +581,7 @@ public final class App extends Application {
             if (!ok) {
                 authPass = null; // could be bad credentials; re-prompt next time
             } else {
-                events.append(UpsEvent.now(ups, false, "Variable changed", name + " = " + value));
+                events.append(UpsEvent.now(ups, false, tr("alert.variableChanged"), name + " = " + value));
             }
             onResult.accept(ok, ok ? message : friendlyCommandError(message));
         });
@@ -664,7 +671,7 @@ public final class App extends Application {
                     TrayDisplay.of(lastSnapshot, TrayMetric.from(config.trayMetric())),
                     TrayDisplay.tooltip(lastSnapshot));
         } else {
-            pushTray(TrayDisplay.disconnected(), running ? "Nux — disconnected" : "Nux — not connected");
+            pushTray(TrayDisplay.disconnected(), running ? tr("tray.disconnected") : tr("tray.notConnected"));
         }
     }
 
@@ -685,15 +692,15 @@ public final class App extends Application {
             return;
         }
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
-        confirm.setTitle("Run command");
-        confirm.setHeaderText("Run " + command + " on " + ups + "?");
-        confirm.setContentText("The command executes on the UPS immediately.");
+        confirm.setTitle(tr("dialog.runCommand.title"));
+        confirm.setHeaderText(tr("dialog.runCommand.header", command, ups));
+        confirm.setContentText(tr("dialog.runCommand.body"));
         if (confirm.showAndWait().filter(b -> b == ButtonType.OK).isEmpty()) {
             return;
         }
         if (authPass == null) {
             Optional<CredentialsDialog.Credentials> creds = CredentialsDialog.show(
-                    "upsd user with instcmds permission (see upsd.users)", authUser != null ? authUser : "");
+                    tr("dialog.credentials.instcmd"), authUser != null ? authUser : "");
             if (creds.isEmpty() || creds.get().user().isEmpty()) {
                 return;
             }
@@ -702,12 +709,12 @@ public final class App extends Application {
         }
         poll.runInstCmd(ups, authUser, authPass, command, (ok, message) -> {
             if (ok) {
-                notifyUser("Nux", "Command " + command + " sent to " + ups + ".", false);
+                notifyUser("Nux", tr("alert.commandSent", command, ups), false);
             } else {
                 authPass = null; // could be bad credentials; re-prompt next time
                 Alert error = new Alert(Alert.AlertType.ERROR);
-                error.setTitle("Command failed");
-                error.setHeaderText(command + " failed");
+                error.setTitle(tr("dialog.commandFailed.title"));
+                error.setHeaderText(tr("dialog.commandFailed.header", command));
                 error.setContentText(friendlyCommandError(message));
                 error.show();
             }
@@ -716,9 +723,9 @@ public final class App extends Application {
 
     private static String friendlyCommandError(String message) {
         return switch (message) {
-            case "ACCESS-DENIED" -> "Access denied — the user needs an instcmds entry in upsd.users.";
-            case "USERNAME-REQUIRED", "PASSWORD-REQUIRED" -> "Authentication required — check the credentials.";
-            case "CMD-NOT-SUPPORTED" -> "The UPS does not support this command.";
+            case "ACCESS-DENIED" -> tr("error.accessDenied");
+            case "USERNAME-REQUIRED", "PASSWORD-REQUIRED" -> tr("error.authRequired");
+            case "CMD-NOT-SUPPORTED" -> tr("error.notSupported");
             default -> message;
         };
     }
@@ -735,11 +742,11 @@ public final class App extends Application {
         if (!config.profiles().isEmpty()) {
             profilesButton.getItems().add(new SeparatorMenuItem());
         }
-        MenuItem save = new MenuItem("Save current as…");
+        MenuItem save = new MenuItem(tr("dialog.saveCurrentAs"));
         save.setOnAction(e -> saveCurrentAsProfile());
         profilesButton.getItems().add(save);
         if (!config.profiles().isEmpty()) {
-            Menu delete = new Menu("Delete profile");
+            Menu delete = new Menu(tr("dialog.deleteProfile"));
             for (Profile profile : config.profiles()) {
                 MenuItem item = new MenuItem(profile.name());
                 item.setOnAction(e -> {
@@ -770,15 +777,15 @@ public final class App extends Application {
         saveConfig(config.withLast(profile.host(), profile.port(), profile.ups(), profile.tls()));
         refreshConnLabel();
         running = true;
-        connectButton.setText("Disconnect");
+        connectButton.setText(tr("toolbar.disconnect"));
         startFresh(profile.ups().isBlank() ? null : profile.ups());
     }
 
     private void saveCurrentAsProfile() {
         TextInputDialog dialog = new TextInputDialog(config.lastHost());
-        dialog.setTitle("Save profile");
-        dialog.setHeaderText("Save the current connection as a profile");
-        dialog.setContentText("Name:");
+        dialog.setTitle(tr("dialog.saveProfile.title"));
+        dialog.setHeaderText(tr("dialog.saveProfile.header"));
+        dialog.setContentText(tr("dialog.saveProfile.name"));
         Optional<String> raw = dialog.showAndWait();
         if (raw.isEmpty()) {
             return;
@@ -807,16 +814,16 @@ public final class App extends Application {
 
     private TableView<Map.Entry<String, String>> buildVarTable() {
         TableView<Map.Entry<String, String>> table = new TableView<>(varRows);
-        TableColumn<Map.Entry<String, String>, String> name = new TableColumn<>("Variable");
+        TableColumn<Map.Entry<String, String>, String> name = new TableColumn<>(tr("dashboard.variable"));
         name.setCellValueFactory(cd -> new javafx.beans.property.SimpleStringProperty(cd.getValue().getKey()));
         name.setPrefWidth(280);
-        TableColumn<Map.Entry<String, String>, String> value = new TableColumn<>("Value");
+        TableColumn<Map.Entry<String, String>, String> value = new TableColumn<>(tr("dashboard.value"));
         value.setCellValueFactory(cd -> new javafx.beans.property.SimpleStringProperty(cd.getValue().getValue()));
         value.setPrefWidth(420);
         table.getColumns().add(name);
         table.getColumns().add(value);
         table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
-        table.setPlaceholder(new Label("Connect to a NUT server to see variables"));
+        table.setPlaceholder(new Label(tr("dashboard.connectPrompt")));
         return table;
     }
 
@@ -826,9 +833,18 @@ public final class App extends Application {
     }
 
     public static void main(String[] args) {
-        // Before the toolkit starts: if Nux is already running, raise its window and stop.
-        // Config is read directly here — this must settle before any UI exists.
-        if (ConfigStore.load(ConfigStore.DEFAULT_PATH).advanced().singleInstance()
+        Config startup = ConfigStore.load(ConfigStore.DEFAULT_PATH);
+
+        // The catalogue must be loaded here, not in start(): field initialisers call tr()
+        // and they run when JavaFX constructs the Application, before start() is entered.
+        // Locale.setDefault makes JavaFX's own dialog buttons (OK/Cancel) match.
+        String language = Messages.resolve(
+                startup.advanced().uiLanguage(), Messages.available(), Locale.getDefault().getLanguage());
+        Messages.init(language);
+        Locale.setDefault(Locale.forLanguageTag(language));
+
+        // If Nux is already running, raise its window and stop before the toolkit starts.
+        if (startup.advanced().singleInstance()
                 && SingleInstance.signalExisting(instanceLockFile(), SingleInstance.HANDSHAKE_TIMEOUT_MS)) {
             System.exit(0);
         }

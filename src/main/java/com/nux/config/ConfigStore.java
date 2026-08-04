@@ -64,7 +64,8 @@ public final class ConfigStore {
                 p.getProperty("adv.selfTestTime", d.selfTestTime()),
                 parseLong(p.getProperty("adv.selfTestLastRun"), 0),
                 p.getProperty("adv.selfTestCommand", d.selfTestCommand()),
-                Boolean.parseBoolean(p.getProperty("adv.singleInstance", "true")));
+                Boolean.parseBoolean(p.getProperty("adv.singleInstance", "true")),
+                p.getProperty("adv.uiLanguage", d.uiLanguage()));
 
         return new Config(
                 List.copyOf(profiles), lastHost, lastPort, lastUps, lastTls, tlsTrustAll, autoConnect, tray,
@@ -95,6 +96,7 @@ public final class ConfigStore {
         p.setProperty("adv.selfTestLastRun", Long.toString(a.selfTestLastRun()));
         p.setProperty("adv.selfTestCommand", a.selfTestCommand());
         p.setProperty("adv.singleInstance", Boolean.toString(a.singleInstance()));
+        p.setProperty("adv.uiLanguage", a.uiLanguage());
         StringJoiner names = new StringJoiner(",");
         for (Profile profile : c.profiles()) {
             names.add(profile.name());

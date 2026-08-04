@@ -4,6 +4,23 @@ All notable changes to Nux are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Multiple languages: **English, Spanish, French, German, Portuguese and
+  Italian**. The language follows the system unless overridden in Settings →
+  Tray; a change applies on the next launch, since the catalogue is loaded
+  once at startup. `Locale.setDefault` follows it too, so JavaFX's own
+  OK/Cancel buttons match.
+  Status labels and power-event alerts are produced as catalogue *keys* by
+  the pure `UpsStatus`/`StatusTransitions` cores and translated at the edge,
+  keeping those decisions testable and language-independent.
+  `MessagesTest` enforces that every language defines exactly the base key
+  set, that no value is blank, that no translation drops a `{0}` placeholder,
+  and that no apostrophe silently swallows one (MessageFormat treats a lone
+  `'` as an escape — a real hazard in French, Italian and Portuguese).
+
 ## [0.3.0] - 2026-08-03
 
 ### Added

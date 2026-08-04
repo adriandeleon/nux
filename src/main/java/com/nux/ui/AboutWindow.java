@@ -1,5 +1,7 @@
 package com.nux.ui;
 
+import static com.nux.i18n.Messages.tr;
+
 import java.util.function.Consumer;
 
 import javafx.geometry.Insets;
@@ -29,7 +31,7 @@ public final class AboutWindow {
 
     /** {@code openUrl} is the host-services opener; {@code configDir} appears in the copyable details. */
     public static void show(Window owner, Consumer<String> openUrl, String configDir) {
-        VBox header = new VBox(2, title(), version(), subtitle("A client for Network UPS Tools"));
+        VBox header = new VBox(2, title(), version(), subtitle(tr("about.tagline")));
         header.setAlignment(Pos.CENTER_LEFT);
 
         HBox top = new HBox(16, icon(), header);
@@ -38,24 +40,24 @@ public final class AboutWindow {
         VBox links = new VBox(
                 2,
                 subtitle(AppInfo.COPYRIGHT),
-                link(AppInfo.LICENSE, AppInfo.LICENSE_URL, openUrl),
-                link("Source code and releases", AppInfo.REPOSITORY, openUrl),
-                link("Report an issue", AppInfo.ISSUES_URL, openUrl),
-                link("Network UPS Tools", AppInfo.NUT_URL, openUrl));
+                link(tr("about.license"), AppInfo.LICENSE_URL, openUrl),
+                link(tr("about.source"), AppInfo.REPOSITORY, openUrl),
+                link(tr("about.issues"), AppInfo.ISSUES_URL, openUrl),
+                link(tr("about.nut"), AppInfo.NUT_URL, openUrl));
 
         Label details = new Label(AppInfo.supportSummary(configDir));
         details.getStyleClass().add("about-details");
         details.setWrapText(true);
 
         Stage stage = new Stage();
-        Button copy = new Button("Copy details");
+        Button copy = new Button(tr("about.copyDetails"));
         copy.setOnAction(e -> {
             ClipboardContent content = new ClipboardContent();
             content.putString(AppInfo.supportSummary(configDir));
             Clipboard.getSystemClipboard().setContent(content);
-            copy.setText("Copied");
+            copy.setText(tr("about.copied"));
         });
-        Button close = new Button("Close");
+        Button close = new Button(tr("about.close"));
         close.setDefaultButton(true);
         close.setOnAction(e -> stage.close());
         Region spacer = new Region();
@@ -69,7 +71,7 @@ public final class AboutWindow {
         stage.initOwner(owner);
         stage.initModality(Modality.WINDOW_MODAL);
         stage.setResizable(false);
-        stage.setTitle("About " + AppInfo.NAME);
+        stage.setTitle(tr("toolbar.about", AppInfo.NAME));
         Scene scene = new Scene(root, 440, 400);
         scene.getStylesheets().add(AboutWindow.class.getResource("/com/nux/nux.css").toExternalForm());
         stage.setScene(scene);
@@ -93,7 +95,7 @@ public final class AboutWindow {
 
     private static Label version() {
         // A snapshot build says so, so a dev copy is never mistaken for a release.
-        String text = "Version " + AppInfo.VERSION + (AppInfo.isSnapshot() ? "  (development build)" : "");
+        String text = tr("about.version", AppInfo.VERSION) + (AppInfo.isSnapshot() ? tr("about.development") : "");
         Label label = new Label(text);
         label.getStyleClass().add("detail-name");
         return label;

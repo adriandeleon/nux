@@ -1,5 +1,7 @@
 package com.nux.ui;
 
+import static com.nux.i18n.Messages.tr;
+
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -22,11 +24,11 @@ public final class Dashboard extends VBox {
     /** ~1 hour of history at the 5 s poll cadence. */
     private static final int HISTORY_CAPACITY = 720;
 
-    private final Label statusPill = new Label("Not connected");
+    private final Label statusPill = new Label(tr("dashboard.notConnected"));
     private final Label modelLabel = new Label("");
-    private final ArcGauge charge = new ArcGauge("Battery", false);
-    private final ArcGauge load = new ArcGauge("Load", true);
-    private final ArcGauge runtime = new ArcGauge("Runtime", false);
+    private final ArcGauge charge = new ArcGauge(tr("dashboard.battery"), false);
+    private final ArcGauge load = new ArcGauge(tr("dashboard.load"), true);
+    private final ArcGauge runtime = new ArcGauge(tr("dashboard.runtime"), false);
 
     private final History chargeHistory = new History(HISTORY_CAPACITY);
     private final History loadHistory = new History(HISTORY_CAPACITY);
@@ -60,7 +62,7 @@ public final class Dashboard extends VBox {
         HBox gauges = new HBox(28, column(charge, chargeSpark), column(load, loadSpark), column(runtime, runtimeSpark));
         gauges.setAlignment(Pos.CENTER);
 
-        Label voltageTitle = new Label("Input voltage");
+        Label voltageTitle = new Label(tr("dashboard.inputVoltage"));
         voltageTitle.getStyleClass().add("detail-name");
         VBox voltageStrip = new VBox(4, voltageTitle, voltageSpark);
         voltageStrip.setAlignment(Pos.CENTER);
@@ -69,9 +71,9 @@ public final class Dashboard extends VBox {
         details.setHgap(24);
         details.setVgap(8);
         details.setAlignment(Pos.CENTER);
-        details.addRow(0, detailName("Input"), inputVoltage, detailName("Output"), outputVoltage);
-        details.addRow(1, detailName("Battery"), batteryVoltage, detailName("Serial"), serial);
-        details.addRow(2, detailName("Battery age"), batteryAge, detailName("Power"), power);
+        details.addRow(0, detailName(tr("dashboard.input")), inputVoltage, detailName(tr("dashboard.output")), outputVoltage);
+        details.addRow(1, detailName(tr("dashboard.batteryLabel")), batteryVoltage, detailName(tr("dashboard.serial")), serial);
+        details.addRow(2, detailName(tr("dashboard.batteryAge")), batteryAge, detailName(tr("dashboard.power")), power);
 
         overview.setAlignment(Pos.CENTER);
         overview.setVisible(false);
@@ -151,7 +153,7 @@ public final class Dashboard extends VBox {
     }
 
     public void showDisconnected(String reason) {
-        statusPill.setText("Disconnected — retrying");
+        statusPill.setText(tr("dashboard.disconnected"));
         statusPill.getStyleClass().removeAll("status-ok", "status-warning", "status-critical", "status-neutral");
         statusPill.getStyleClass().add("status-critical");
         modelLabel.setText(reason);

@@ -1,5 +1,7 @@
 package com.nux.ui;
 
+import static com.nux.i18n.Messages.tr;
+
 import java.util.function.Consumer;
 
 import javafx.geometry.Insets;
@@ -27,6 +29,7 @@ import javafx.util.StringConverter;
 import com.nux.analysis.TestSchedule;
 import com.nux.autostart.Autostart;
 import com.nux.config.Advanced;
+import com.nux.i18n.Messages;
 import com.nux.config.Config;
 import com.nux.protocol.NutClient;
 import com.nux.tray.TrayMetric;
@@ -40,6 +43,15 @@ public final class SettingsWindow {
 
     private SettingsWindow() {}
 
+    /** Maps a display name back to its ISO code; unknown names fall back to English. */
+    private static String languageCode(String displayName) {
+        return Messages.LANGUAGES.entrySet().stream()
+                .filter(e -> e.getValue().equals(displayName))
+                .map(java.util.Map.Entry::getKey)
+                .findFirst()
+                .orElse("en");
+    }
+
     public static void show(Window owner, Config current, Consumer<Config> onSave) {
         Advanced adv = current.advanced();
 
@@ -47,22 +59,22 @@ public final class SettingsWindow {
         TextField host = new TextField(current.lastHost());
         TextField port = new TextField(Integer.toString(current.lastPort()));
         port.setPrefColumnCount(5);
-        CheckBox tls = new CheckBox("Use TLS (STARTTLS; upsd needs CERTFILE)");
+        CheckBox tls = new CheckBox(tr("settings.tls"));
         tls.setSelected(current.lastTls());
-        CheckBox autoConnect = new CheckBox("Connect automatically on launch");
+        CheckBox autoConnect = new CheckBox(tr("settings.autoConnect"));
         autoConnect.setSelected(current.autoConnect());
-        Button discover = new Button("Find servers…");
+        Button discover = new Button(tr("settings.discover"));
         GridPane connection = grid();
-        connection.addRow(0, new Label("Host"), host);
-        connection.addRow(1, new Label("Port"), port);
+        connection.addRow(0, new Label(tr("settings.host")), host);
+        connection.addRow(1, new Label(tr("settings.port")), port);
         connection.add(discover, 1, 2);
         connection.add(tls, 0, 3, 2, 1);
         connection.add(autoConnect, 0, 4, 2, 1);
 
         // --- Tray + notifications
-        CheckBox tray = new CheckBox("Show tray icon");
+        CheckBox tray = new CheckBox(tr("settings.tray"));
         tray.setSelected(current.tray());
-        CheckBox closeToTray = new CheckBox("Close hides to tray (Quit from the tray menu)");
+        CheckBox closeToTray = new CheckBox(tr("settings.closeToTray"));
         closeToTray.setSelected(current.closeToTray());
         ComboBox<TrayMetric> metric = new ComboBox<>();
         metric.getItems().setAll(TrayMetric.values());
@@ -70,14 +82,21 @@ public final class SettingsWindow {
         metric.setConverter(converter(TrayMetric::label, TrayMetric::from));
         closeToTray.disableProperty().bind(tray.selectedProperty().not());
         metric.disableProperty().bind(tray.selectedProperty().not());
-        CheckBox notifications = new CheckBox("Desktop notifications on power events");
+        CheckBox notifications = new CheckBox(tr("settings.notifications"));
         notifications.setSelected(current.notifications());
-        CheckBox singleInstance = new CheckBox("Only one Nux at a time (re-launching shows this window)");
+        CheckBox singleInstance = new CheckBox(tr("settings.singleInstance"));
         singleInstance.setSelected(adv.singleInstance());
+
+        // The language applies on the next launch: catalogues are loaded once at startup
+        // and half the UI is already built by the time this dialog opens.
+        ComboBox<String> language = new ComboBox<>();
+        language.getItems().addAll(Messages.languageChoices().values());
+        language.setValue(Messages.languageChoices()
+                .getOrDefault(Messages.activeLanguage(), Messages.LANGUAGES.get("en")));
 
         // Start-at-login is OS state, not app config: read it back from the OS so the two
         // can never disagree, and apply it immediately rather than on Save.
-        CheckBox autostart = new CheckBox("Start Nux when I log in");
+        CheckBox autostart = new CheckBox(tr("settings.autostart"));
         autostart.setSelected(Autostart.isEnabled());
         if (Autostart.isSupported()) {
             autostart.selectedProperty().addListener((o, was, now) -> {
@@ -92,18 +111,20 @@ public final class SettingsWindow {
         }
 
         GridPane trayGrid = grid();
-        trayGrid.add(tray, 0, 0, 2, 1);
-        trayGrid.add(closeToTray, 0, 1, 2, 1);
-        trayGrid.addRow(2, new Label("Tray shows"), metric);
-        trayGrid.add(notifications, 0, 3, 2, 1);
-        trayGrid.add(autostart, 0, 4, 2, 1);
-        trayGrid.add(singleInstance, 0, 6, 2, 1);
+        trayGrid.addRow(0, new Label(tr("settings.language")), language);
+        trayGrid.add(note(tr("settings.languageNote")), 0, 1, 2, 1);
+        trayGrid.add(tray, 0, 2, 2, 1);
+        trayGrid.add(closeToTray, 0, 3, 2, 1);
+        trayGrid.addRow(4, new Label(tr("settings.trayShows")), metric);
+        trayGrid.add(notifications, 0, 5, 2, 1);
+        trayGrid.add(autostart, 0, 6, 2, 1);
+        trayGrid.add(singleInstance, 0, 8, 2, 1);
         trayGrid.add(
                 note("Off allows several copies at once — useful for watching two servers side by side."),
-                0, 7, 2, 1);
+                0, 9, 2, 1);
         trayGrid.add(
-                note("When the tray icon is enabled, starting at login opens Nux minimised to the tray."),
-                0, 5, 2, 1);
+                note(tr("settings.autostartNote")),
+                0, 7, 2, 1);
 
         // --- Power & history
         TextField watts = new TextField(adv.nominalWatts() > 0 ? trim(adv.nominalWatts()) : "");
@@ -124,7 +145,7 @@ public final class SettingsWindow {
         power.add(note("Load is usually reported as a percentage, so power and cost are estimates."), 0, 4, 2, 1);
 
         // --- Automation
-        CheckBox selfTest = new CheckBox("Run a battery self-test on a schedule");
+        CheckBox selfTest = new CheckBox(tr("settings.selfTest"));
         selfTest.setSelected(adv.selfTestEnabled());
         Spinner<Integer> interval = new Spinner<>(1, 365, adv.selfTestIntervalDays());
         interval.setPrefWidth(90);
@@ -138,7 +159,7 @@ public final class SettingsWindow {
         automation.add(selfTest, 0, 0, 2, 1);
         automation.addRow(1, new Label("Every"), withSuffix(interval, "days"));
         automation.addRow(2, new Label("At"), withSuffix(time, "HH:mm"));
-        automation.addRow(3, new Label("Command"), command);
+        automation.addRow(3, new Label(tr("settings.selfTestCommand")), command);
         automation.add(
                 note("Tests run only while Nux is open and after you have entered UPS credentials this session — "
                         + "credentials are never stored on disk."),
@@ -152,7 +173,7 @@ public final class SettingsWindow {
                 0, 5, 2, 1);
 
         TabPane tabs = new TabPane(
-                tab("Connection", connection), tab("Tray", trayGrid), tab("Power", power), tab("Automation", automation));
+                tab(tr("settings.tab.connection"), connection), tab(tr("settings.tab.tray"), trayGrid), tab(tr("settings.tab.power"), power), tab(tr("settings.tab.automation"), automation));
         tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
 
         Stage stage = new Stage();
@@ -160,9 +181,9 @@ public final class SettingsWindow {
             host.setText(foundHost);
             port.setText(Integer.toString(foundPort));
         }));
-        Button cancel = new Button("Cancel");
+        Button cancel = new Button(tr("settings.cancel"));
         cancel.setOnAction(e -> stage.close());
-        Button save = new Button("Save");
+        Button save = new Button(tr("settings.save"));
         save.setDefaultButton(true);
         save.setOnAction(e -> {
             Advanced updatedAdv = new Advanced(
@@ -175,7 +196,8 @@ public final class SettingsWindow {
                     time.getText().trim(),
                     adv.selfTestLastRun(),
                     command.getText().isBlank() ? Advanced.DEFAULT_TEST_COMMAND : command.getText().trim(),
-                    singleInstance.isSelected());
+                    singleInstance.isSelected(),
+                    languageCode(language.getValue()));
             onSave.accept(new Config(
                     current.profiles(),
                     host.getText().trim(),

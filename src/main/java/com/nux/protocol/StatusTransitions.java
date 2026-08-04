@@ -3,11 +3,14 @@ package com.nux.protocol;
 /**
  * Pure detection of alert-worthy {@code ups.status} transitions between two polls.
  * Ordered by severity: a transition that is simultaneously FSD+LB+OB reports as FSD.
+ *
+ * <p>Alerts carry catalogue <em>keys</em> rather than text, so the decision stays pure
+ * and testable and the wording is resolved in the user's language at the edge.
  */
 public final class StatusTransitions {
 
-    /** An alert to surface to the user; {@code critical} maps to notification urgency. */
-    public record Alert(String title, String message, boolean critical) {}
+    /** An alert to surface; {@code critical} maps to notification urgency. */
+    public record Alert(String titleKey, String bodyKey, boolean critical) {}
 
     private StatusTransitions() {}
 
@@ -17,19 +20,19 @@ public final class StatusTransitions {
             return null;
         }
         if (!before.forcedShutdown() && now.forcedShutdown()) {
-            return new Alert("Forced shutdown", "The UPS is shutting down its load.", true);
+            return new Alert("alert.forcedShutdown.title", "alert.forcedShutdown.body", true);
         }
         if (!before.lowBattery() && now.lowBattery()) {
-            return new Alert("UPS battery LOW", "Runtime is nearly exhausted — save your work now.", true);
+            return new Alert("alert.lowBattery.title", "alert.lowBattery.body", true);
         }
         if (!before.onBattery() && now.onBattery()) {
-            return new Alert("On battery power", "Utility power lost — running on the UPS battery.", true);
+            return new Alert("alert.onBattery.title", "alert.onBattery.body", true);
         }
         if (before.onBattery() && now.online()) {
-            return new Alert("Power restored", "Back on utility power.", false);
+            return new Alert("alert.powerRestored.title", "alert.powerRestored.body", false);
         }
         if (!before.replaceBattery() && now.replaceBattery()) {
-            return new Alert("Replace UPS battery", "The UPS reports its battery needs replacement.", false);
+            return new Alert("alert.replaceBattery.title", "alert.replaceBattery.body", false);
         }
         return null;
     }

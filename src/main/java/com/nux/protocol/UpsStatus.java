@@ -4,6 +4,8 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.TreeSet;
 
+import com.nux.i18n.Messages;
+
 /**
  * The decoded {@code ups.status} flag set ({@code OL}, {@code OB}, {@code LB}, {@code CHRG}, ...).
  * Pure; the UI derives its pill text and coloring from {@link #label()} and {@link #severity()}.
@@ -70,26 +72,36 @@ public record UpsStatus(Set<String> flags) {
         return Severity.WARNING; // unknown/empty status is worth a look, never a green light
     }
 
-    /** A short human label for the dominant state. */
-    public String label() {
+    /**
+     * The catalogue key for the dominant state, or null when the status is a flag
+     * combination we have no wording for (the caller then shows the raw flags).
+     * Pure — the translation happens in {@link #label()}, so the decision stays testable.
+     */
+    public String labelKey() {
         if (flags.isEmpty()) {
-            return "Unknown";
+            return "status.unknown";
         }
         if (forcedShutdown()) {
-            return "Forced shutdown";
+            return "status.forcedShutdown";
         }
         if (onBattery() && lowBattery()) {
-            return "On battery — LOW";
+            return "status.onBatteryLow";
         }
         if (onBattery()) {
-            return "On battery";
+            return "status.onBattery";
         }
         if (online() && charging()) {
-            return "Online, charging";
+            return "status.onlineCharging";
         }
         if (online()) {
-            return "Online";
+            return "status.online";
         }
-        return String.join(" ", flags);
+        return null;
+    }
+
+    /** A short human label for the dominant state, in the active language. */
+    public String label() {
+        String key = labelKey();
+        return key == null ? String.join(" ", flags) : Messages.tr(key);
     }
 }

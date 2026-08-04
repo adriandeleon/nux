@@ -181,6 +181,30 @@ is well covered by tests. **Command TRACKING was taken from jNut as an idea
 and reimplemented**; revisit the dependency only if Nux ever needs broad
 protocol coverage, or if jNut publishes a modular artifact.
 
+## Localisation
+
+Every user-facing string goes through `com.nux.i18n.Messages.tr(key)` — never a
+literal in a control. Strings live in
+`resources/com/nux/i18n/messages[_<lang>].properties` (English is the base and the
+fallback); bundled languages are en/es/fr/de/pt/it. Adding one is a complete
+`messages_<lang>.properties` plus an entry in `Messages.LANGUAGES`;
+`MessagesTest` fails the build on any key drift.
+
+Three rules worth keeping:
+
+- **`Messages.init` happens in `main()`, not `start()`.** `App`'s field
+  initialisers call `tr()`, and they run when JavaFX constructs the Application —
+  before `start()` is entered. Initialising later renders raw keys in the toolbar.
+  `tr()` also lazily loads English if nothing initialised it, so a stray early
+  lookup can never leak a key into the UI.
+- **Pure cores return keys, not text.** `UpsStatus.labelKey()` and
+  `StatusTransitions.alert()` yield catalogue keys; the UI resolves them. That
+  keeps the decisions testable and independent of the active language.
+- **Double the apostrophes in parameterised values.** MessageFormat treats a lone
+  `'` as an escape, so `l'onduleur … {0}` silently loses its placeholder. Only
+  strings containing `{0}` are affected (plain `tr(key)` skips MessageFormat), and
+  a test formats every such value to prove the placeholder survives.
+
 ## NUT protocol notes
 
 Line-based text over TCP 3493. Requests like `LIST VAR <ups>`; replies

@@ -1,5 +1,7 @@
 package com.nux.ui;
 
+import static com.nux.i18n.Messages.tr;
+
 import java.util.function.BiConsumer;
 
 import javafx.geometry.Insets;
@@ -36,22 +38,22 @@ public final class DiscoveryWindow {
                     setText(null);
                     return;
                 }
-                String ups = item.upsNames().isEmpty() ? "no UPS configured" : String.join(", ", item.upsNames());
+                String ups = item.upsNames().isEmpty() ? tr("discovery.noUps") : String.join(", ", item.upsNames());
                 setText(item.host() + ":" + item.port() + "   —   " + ups);
             }
         });
-        list.setPlaceholder(new Label("No servers found yet"));
+        list.setPlaceholder(new Label(tr("discovery.empty")));
         VBox.setVgrow(list, Priority.ALWAYS);
 
-        Label status = new Label("Ready");
+        Label status = new Label(tr("discovery.ready"));
         status.getStyleClass().add("detail-name");
         ProgressIndicator spinner = new ProgressIndicator();
         spinner.setPrefSize(16, 16);
         spinner.setVisible(false);
 
         Stage stage = new Stage();
-        Button scan = new Button("Scan");
-        Button use = new Button("Use this server");
+        Button scan = new Button(tr("discovery.scan"));
+        Button use = new Button(tr("discovery.use"));
         use.setDisable(true);
         list.getSelectionModel()
                 .selectedItemProperty()
@@ -61,14 +63,14 @@ public final class DiscoveryWindow {
             list.getItems().clear();
             scan.setDisable(true);
             spinner.setVisible(true);
-            status.setText("Scanning the local network…");
+            status.setText(tr("discovery.scanning"));
             discovery.scan(
                     NutClient.DEFAULT_PORT,
                     found -> list.getItems().add(found),
                     probed -> {
                         scan.setDisable(false);
                         spinner.setVisible(false);
-                        status.setText("Probed " + probed + " addresses — found " + list.getItems().size());
+                        status.setText(tr("discovery.result", probed, list.getItems().size()));
                     });
         });
         use.setOnAction(e -> {
@@ -93,13 +95,13 @@ public final class DiscoveryWindow {
 
         VBox root = new VBox(
                 10,
-                new Label("NUT servers answering on port " + NutClient.DEFAULT_PORT + " in your subnets"),
+                new Label(tr("discovery.heading", NutClient.DEFAULT_PORT)),
                 list,
                 bar);
         root.setPadding(new Insets(14));
 
         stage.initOwner(owner);
-        stage.setTitle("Find NUT servers");
+        stage.setTitle(tr("discovery.title"));
         Scene scene = new Scene(root, 520, 380);
         scene.getStylesheets().add(DiscoveryWindow.class.getResource("/com/nux/nux.css").toExternalForm());
         stage.setScene(scene);

@@ -1,5 +1,7 @@
 package com.nux.ui;
 
+import static com.nux.i18n.Messages.tr;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -35,13 +37,13 @@ public final class EventsWindow {
 
     public static void show(Window owner, EventLog log) {
         TableView<UpsEvent> table = new TableView<>();
-        TableColumn<UpsEvent, String> when = column("When", UpsEvent::displayTime, 160);
-        TableColumn<UpsEvent, String> ups = column("UPS", UpsEvent::ups, 110);
-        TableColumn<UpsEvent, String> title = column("Event", UpsEvent::title, 190);
-        TableColumn<UpsEvent, String> message = column("Details", UpsEvent::message, 340);
+        TableColumn<UpsEvent, String> when = column(tr("events.when"), UpsEvent::displayTime, 160);
+        TableColumn<UpsEvent, String> ups = column(tr("events.ups"), UpsEvent::ups, 110);
+        TableColumn<UpsEvent, String> title = column(tr("events.event"), UpsEvent::title, 190);
+        TableColumn<UpsEvent, String> message = column(tr("events.details"), UpsEvent::message, 340);
         table.getColumns().addAll(List.of(when, ups, title, message));
         table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
-        table.setPlaceholder(new Label("No events recorded yet"));
+        table.setPlaceholder(new Label(tr("events.empty")));
         // Critical rows read at a glance — that's the whole point of scanning this list.
         table.setRowFactory(v -> new TableRow<>() {
             @Override
@@ -62,7 +64,7 @@ public final class EventsWindow {
                         List<UpsEvent> events = log.load();
                         Platform.runLater(() -> {
                             table.getItems().setAll(events);
-                            count.setText(events.size() + " events");
+                            count.setText(tr("events.count", events.size()));
                         });
                     },
                     "nux-events-load");
@@ -71,9 +73,9 @@ public final class EventsWindow {
         };
 
         Stage stage = new Stage();
-        Button refresh = new Button("Refresh");
+        Button refresh = new Button(tr("events.refresh"));
         refresh.setOnAction(e -> reload.run());
-        Button export = new Button("Export…");
+        Button export = new Button(tr("events.export"));
         export.setOnAction(e -> export(stage, log));
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
@@ -83,7 +85,7 @@ public final class EventsWindow {
         VBox root = new VBox(10, bar, table);
         root.setPadding(new Insets(14));
         stage.initOwner(owner);
-        stage.setTitle("Nux Events");
+        stage.setTitle(tr("events.title"));
         Scene scene = new Scene(root, 820, 520);
         scene.getStylesheets().add(EventsWindow.class.getResource("/com/nux/nux.css").toExternalForm());
         stage.setScene(scene);
@@ -93,7 +95,7 @@ public final class EventsWindow {
 
     private static void export(Window owner, EventLog log) {
         FileChooser chooser = new FileChooser();
-        chooser.setTitle("Export events");
+        chooser.setTitle(tr("events.exportTitle"));
         chooser.setInitialFileName("nux-events.csv");
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("CSV", "*.csv"));
         java.io.File target = chooser.showSaveDialog(owner);
@@ -109,8 +111,8 @@ public final class EventsWindow {
             }
         } catch (IOException e) {
             Alert alert = new Alert(Alert.AlertType.ERROR);
-            alert.setTitle("Export failed");
-            alert.setHeaderText("Could not write " + target.getName());
+            alert.setTitle(tr("events.exportFailed"));
+            alert.setHeaderText(tr("events.exportFailedHeader", target.getName()));
             alert.setContentText(String.valueOf(e.getMessage()));
             alert.show();
         }

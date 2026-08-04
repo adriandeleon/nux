@@ -1,5 +1,7 @@
 package com.nux.tray;
 
+import static com.nux.i18n.Messages.tr;
+
 import java.util.List;
 import java.util.Map;
 
@@ -28,9 +30,9 @@ final class SniMenuModel {
             case STATUS -> Map.of(
                     "label", new Variant<>(statusLine),
                     "enabled", new Variant<>(false));
-            case OPEN -> Map.of("label", new Variant<>("Open Nux"));
+            case OPEN -> Map.of("label", new Variant<>(tr("tray.open")));
             case SEPARATOR -> Map.of("type", new Variant<>("separator"));
-            case QUIT -> Map.of("label", new Variant<>("Quit Nux"));
+            case QUIT -> Map.of("label", new Variant<>(tr("tray.quit")));
             default -> Map.of();
         };
     }

@@ -13,7 +13,7 @@ class UpsStatusTest {
         UpsStatus s = UpsStatus.parse("OL");
         assertTrue(s.online());
         assertEquals(UpsStatus.Severity.OK, s.severity());
-        assertEquals("Online", s.label());
+        assertEquals("status.online", s.labelKey());
     }
 
     @Test
@@ -21,7 +21,7 @@ class UpsStatusTest {
         UpsStatus s = UpsStatus.parse("OL CHRG");
         assertTrue(s.charging());
         assertEquals(UpsStatus.Severity.OK, s.severity());
-        assertEquals("Online, charging", s.label());
+        assertEquals("status.onlineCharging", s.labelKey());
     }
 
     @Test
@@ -30,14 +30,14 @@ class UpsStatusTest {
         assertTrue(s.onBattery());
         assertFalse(s.online());
         assertEquals(UpsStatus.Severity.WARNING, s.severity());
-        assertEquals("On battery", s.label());
+        assertEquals("status.onBattery", s.labelKey());
     }
 
     @Test
     void lowBatteryIsCritical() {
         UpsStatus s = UpsStatus.parse("OB LB");
         assertEquals(UpsStatus.Severity.CRITICAL, s.severity());
-        assertEquals("On battery — LOW", s.label());
+        assertEquals("status.onBatteryLow", s.labelKey());
     }
 
     @Test
@@ -45,7 +45,7 @@ class UpsStatusTest {
         UpsStatus s = UpsStatus.parse("FSD OB LB");
         assertTrue(s.forcedShutdown());
         assertEquals(UpsStatus.Severity.CRITICAL, s.severity());
-        assertEquals("Forced shutdown", s.label());
+        assertEquals("status.forcedShutdown", s.labelKey());
     }
 
     @Test
@@ -59,7 +59,15 @@ class UpsStatusTest {
     void unknownStatusNeverReadsAsOk() {
         assertEquals(UpsStatus.Severity.WARNING, UpsStatus.parse("").severity());
         assertEquals(UpsStatus.Severity.WARNING, UpsStatus.parse("WEIRD").severity());
-        assertEquals("Unknown", UpsStatus.parse(null).label());
+        assertEquals("status.unknown", UpsStatus.parse(null).labelKey());
+    }
+
+    @Test
+    void labelRendersTheKeyInTheActiveLanguage() {
+        // labelKey() is the pure decision; label() is the translated rendering of it.
+        assertEquals("Online", UpsStatus.parse("OL").label());
+        // A flag combination with no wording of its own shows the raw flags.
+        assertEquals("BOOST", UpsStatus.parse("BOOST").label());
     }
 
     @Test

@@ -22,7 +22,7 @@ class ConfigStoreTest {
                 .withAutoConnect(true)
                 .withTrayMetric("runtime")
                 .withAdvanced(
-                        new Advanced(14, 900, 0.28, "€", true, 7, "02:30", 1785700000L, "test.battery.start.deep", false))
+                        new Advanced(14, 900, 0.28, "€", true, 7, "02:30", 1785700000L, "test.battery.start.deep", false, "es"))
                 .withProfileSaved(new Profile("desk", "localhost", 3493, "cyberpower", false))
                 .withProfileSaved(new Profile("nas", "nas.local", 3494, "", true));
         Config parsed = ConfigStore.parse(ConfigStore.format(original));

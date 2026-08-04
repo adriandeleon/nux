@@ -1,5 +1,7 @@
 package com.nux.ui;
 
+import static com.nux.i18n.Messages.tr;
+
 import java.util.Optional;
 
 import javafx.application.Platform;
@@ -20,7 +22,7 @@ public final class CredentialsDialog {
 
     public static Optional<Credentials> show(String header, String initialUser) {
         Dialog<Credentials> dialog = new Dialog<>();
-        dialog.setTitle("NUT authentication");
+        dialog.setTitle(tr("dialog.credentials.title"));
         dialog.setHeaderText(header);
         dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
 
@@ -30,8 +32,8 @@ public final class CredentialsDialog {
         grid.setHgap(10);
         grid.setVgap(10);
         grid.setPadding(new Insets(16));
-        grid.addRow(0, new Label("Username"), user);
-        grid.addRow(1, new Label("Password"), password);
+        grid.addRow(0, new Label(tr("dialog.credentials.username")), user);
+        grid.addRow(1, new Label(tr("dialog.credentials.password")), password);
         dialog.getDialogPane().setContent(grid);
 
         Platform.runLater(() -> (initialUser.isEmpty() ? user : password).requestFocus());
