@@ -205,6 +205,26 @@ Three rules worth keeping:
   strings containing `{0}` are affected (plain `tr(key)` skips MessageFormat), and
   a test formats every such value to prove the placeholder survives.
 
+## Update check
+
+`com.nux.update` mirrors Editora's design: a pure `UpdateCheck` (parse, compare,
+throttle) plus an impure `UpdateService` (one daemon thread, results marshalled to
+the FX thread, injectable endpoint + marshaller for tests).
+
+- **Versions compare numerically per component**, so `0.10.0 > 0.9.0` — the case a
+  lexicographic compare gets backwards. A `-SNAPSHOT`/`-rc` suffix sorts *below*
+  its release, so a dev build is offered the release it precedes but never a
+  downgrade.
+- **`TopLevelJson` is depth-aware on purpose.** Nux has no JSON dependency, and a
+  GitHub release payload repeats `html_url` and `name` inside `author` and
+  `assets[]`; anything that searched the text would return an asset's name as the
+  release name. Only depth-1 keys are read, and the test payload includes those
+  decoys.
+- **The throttle timestamp is written before the request**, so a check that fails
+  (offline, rate-limited) doesn't retry on every launch for the rest of the day.
+- Drafts and pre-releases are refused: never nudge a user toward something the
+  author hasn't published.
+
 ## NUT protocol notes
 
 Line-based text over TCP 3493. Requests like `LIST VAR <ups>`; replies

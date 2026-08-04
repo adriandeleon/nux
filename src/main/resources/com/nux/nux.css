@@ -92,3 +92,14 @@
     -fx-font-family: monospace;
     -fx-font-size: 0.9em;
 }
+
+/* "Update available" toolbar notice — an accent pill, so it reads as news
+   rather than as another button. */
+.update-badge {
+    -fx-background-color: -color-accent-emphasis;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-background-radius: 12;
+    -fx-padding: 3 12 3 12;
+    -fx-cursor: hand;
+}

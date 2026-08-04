@@ -18,6 +18,9 @@ public final class AppInfo {
     public static final String REPOSITORY = "https://github.com/adriandeleon/nux";
     public static final String LICENSE_URL = REPOSITORY + "/blob/master/LICENSE";
     public static final String ISSUES_URL = REPOSITORY + "/issues";
+    public static final String RELEASES_PAGE = REPOSITORY + "/releases";
+    public static final String LATEST_RELEASE_API =
+            "https://api.github.com/repos/adriandeleon/nux/releases/latest";
     /** The protocol and server Nux is a client for. */
     public static final String NUT_URL = "https://networkupstools.org/";
 

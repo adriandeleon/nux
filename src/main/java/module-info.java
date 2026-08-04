@@ -4,6 +4,8 @@ module com.nux {
 
     // Tray icon: AWT backend (Windows/macOS) ...
     requires java.desktop;
+    // Update check: an HTTPS GET of the GitHub releases API.
+    requires java.net.http;
     // ... and the Linux StatusNotifierItem backend over D-Bus. The transport and the
     // slf4j->JUL bridge are service providers, required explicitly so jlink includes them.
     requires org.freedesktop.dbus;

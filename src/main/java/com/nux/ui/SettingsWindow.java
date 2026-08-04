@@ -89,6 +89,9 @@ public final class SettingsWindow {
 
         // The language applies on the next launch: catalogues are loaded once at startup
         // and half the UI is already built by the time this dialog opens.
+        CheckBox updateCheck = new CheckBox(tr("settings.updateCheck"));
+        updateCheck.setSelected(adv.updateCheck());
+
         ComboBox<String> language = new ComboBox<>();
         language.getItems().addAll(Messages.languageChoices().values());
         language.setValue(Messages.languageChoices()
@@ -119,6 +122,8 @@ public final class SettingsWindow {
         trayGrid.add(notifications, 0, 5, 2, 1);
         trayGrid.add(autostart, 0, 6, 2, 1);
         trayGrid.add(singleInstance, 0, 8, 2, 1);
+        trayGrid.add(updateCheck, 0, 10, 2, 1);
+        trayGrid.add(note(tr("settings.updateCheckNote")), 0, 11, 2, 1);
         trayGrid.add(
                 note("Off allows several copies at once — useful for watching two servers side by side."),
                 0, 9, 2, 1);
@@ -197,7 +202,10 @@ public final class SettingsWindow {
                     adv.selfTestLastRun(),
                     command.getText().isBlank() ? Advanced.DEFAULT_TEST_COMMAND : command.getText().trim(),
                     singleInstance.isSelected(),
-                    languageCode(language.getValue()));
+                    languageCode(language.getValue()),
+                    updateCheck.isSelected(),
+                    adv.lastUpdateCheckMs(),
+                    adv.dismissedUpdateVersion());
             onSave.accept(new Config(
                     current.profiles(),
                     host.getText().trim(),

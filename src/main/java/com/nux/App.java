@@ -69,6 +69,9 @@ import com.nux.tray.NuxTray;
 import com.nux.tray.TrayDisplay;
 import com.nux.tray.TrayMetric;
 import com.nux.tray.Trays;
+import com.nux.update.ReleaseInfo;
+import com.nux.update.UpdateCheck;
+import com.nux.update.UpdateService;
 import com.nux.ui.AboutWindow;
 import com.nux.ui.CommandPalette;
 import com.nux.ui.CredentialsDialog;
@@ -91,6 +94,10 @@ public final class App extends Application {
     private final PollService poll = new PollService();
     private final Dashboard dashboard = new Dashboard();
     private final CommandRegistry registry = new CommandRegistry();
+    private final UpdateService updateService = new UpdateService();
+    /** The newest release found this session, or null when up to date / not checked. */
+    private ReleaseInfo latestUpdate;
+    private final Button updateButton = new Button();
     private HistoryStore history;
     private EventLog events;
     private final ObservableList<Map.Entry<String, String>> varRows = FXCollections.observableArrayList();
@@ -146,6 +153,10 @@ public final class App extends Application {
         Button aboutButton = new Button("?");
         aboutButton.setTooltip(new javafx.scene.control.Tooltip(tr("toolbar.about", AppInfo.NAME)));
         aboutButton.setOnAction(e -> openAbout());
+        updateButton.getStyleClass().add("update-badge");
+        updateButton.setOnAction(e -> openUpdateDownloadPage());
+        refreshUpdateNotice();
+
         Button historyButton = new Button(tr("toolbar.history"));
         historyButton.setOnAction(e -> openHistory());
         Button eventsButton = new Button(tr("toolbar.events"));
@@ -161,6 +172,7 @@ public final class App extends Application {
                 historyButton,
                 eventsButton,
                 spacer,
+                updateButton,
                 connLabel,
                 settingsButton,
                 aboutButton);
@@ -209,6 +221,7 @@ public final class App extends Application {
         }
         pruneHistory();
         maybeCaptureScreenshot();
+        maybeCheckForUpdates();
     }
 
     /**
@@ -278,6 +291,7 @@ public final class App extends Application {
             tray.dispose();
         }
         poll.shutdown();
+        updateService.shutdown();
         history.shutdown();
         events.shutdown();
         // Tray backends leave non-daemon threads behind (AWT EDT, D-Bus workers); with
@@ -303,6 +317,7 @@ public final class App extends Application {
         registry.register("app.variables", tr("command.variables"), this::openVariables);
         registry.register("app.selfTest", tr("command.selfTest"), this::runSelfTestNow);
         registry.register("app.discover", tr("command.discover"), this::openDiscovery);
+        registry.register("app.checkUpdates", tr("command.checkUpdates"), this::checkForUpdatesNow);
         if (Autostart.isSupported()) {
             registry.register("app.autostart", "Toggle start at login", () -> {
                 boolean now = !Autostart.isEnabled();
@@ -513,12 +528,85 @@ public final class App extends Application {
         HistoryWindow.show(stage, history, ups, config.advanced(), watts);
     }
 
+    // --- update check ---------------------------------------------------------
+
+    /**
+     * Runs the background check when enabled and due. The timestamp is stamped
+     * <em>before</em> the request, so a failing check throttles itself instead of
+     * retrying on every launch all day.
+     */
+    private void maybeCheckForUpdates() {
+        Advanced adv = config.advanced();
+        if (!adv.updateCheck()
+                || !UpdateCheck.isDue(adv.lastUpdateCheckMs(), System.currentTimeMillis(), UpdateCheck.DEFAULT_INTERVAL_MS)) {
+            return;
+        }
+        saveConfig(config.withAdvanced(
+                adv.withUpdateState(System.currentTimeMillis(), adv.dismissedUpdateVersion())));
+        updateService.check(AppInfo.VERSION, outcome -> onUpdateOutcome(outcome, false));
+    }
+
+    /** Manual check: ignores both the throttle and the auto-check setting, and always reports. */
+    private void checkForUpdatesNow() {
+        updateService.check(AppInfo.VERSION, outcome -> onUpdateOutcome(outcome, true));
+    }
+
+    private void onUpdateOutcome(UpdateService.Outcome outcome, boolean manual) {
+        if (!outcome.ok()) {
+            if (manual) {
+                info(tr("update.failedTitle"), tr("update.failed", outcome.error()));
+            }
+            return;
+        }
+        latestUpdate = outcome.available() ? outcome.latest() : null;
+        refreshUpdateNotice();
+        if (manual && !outcome.available()) {
+            info(tr("update.upToDateTitle"), tr("update.upToDate", AppInfo.VERSION));
+        }
+    }
+
+    /** Shows the toolbar notice for a newer release the user hasn't already dismissed. */
+    private void refreshUpdateNotice() {
+        ReleaseInfo info = latestUpdate;
+        boolean show = info != null
+                && !info.version().equals(config.advanced().dismissedUpdateVersion());
+        if (show) {
+            updateButton.setText(tr("update.available", info.version()));
+            updateButton.setTooltip(new javafx.scene.control.Tooltip(tr("update.tooltip")));
+        }
+        updateButton.setVisible(show);
+        updateButton.setManaged(show);
+    }
+
+    /** Opens the release page and stops nagging about that version. */
+    private void openUpdateDownloadPage() {
+        ReleaseInfo info = latestUpdate;
+        getHostServices().showDocument(info != null && !info.url().isBlank() ? info.url() : AppInfo.RELEASES_PAGE);
+        if (info != null) {
+            saveConfig(config.withAdvanced(
+                    config.advanced().withUpdateState(config.advanced().lastUpdateCheckMs(), info.version())));
+        }
+        refreshUpdateNotice();
+    }
+
+    private void info(String title, String message) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        alert.setContentText(message);
+        alert.show();
+    }
+
     private void openEvents() {
         EventsWindow.show(stage, events);
     }
 
     private void openAbout() {
-        AboutWindow.show(stage, url -> getHostServices().showDocument(url), configPath.getParent().toString());
+        AboutWindow.show(
+                stage,
+                url -> getHostServices().showDocument(url),
+                configPath.getParent().toString(),
+                latestUpdate == null ? null : latestUpdate.version());
     }
 
     /** Picking a discovered server points the connection at it and reconnects if running. */

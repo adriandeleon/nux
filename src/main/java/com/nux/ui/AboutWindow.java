@@ -31,6 +31,11 @@ public final class AboutWindow {
 
     /** {@code openUrl} is the host-services opener; {@code configDir} appears in the copyable details. */
     public static void show(Window owner, Consumer<String> openUrl, String configDir) {
+        show(owner, openUrl, configDir, null);
+    }
+
+    /** {@code updateVersion} adds an "update available" line; null when up to date. */
+    public static void show(Window owner, Consumer<String> openUrl, String configDir, String updateVersion) {
         VBox header = new VBox(2, title(), version(), subtitle(tr("about.tagline")));
         header.setAlignment(Pos.CENTER_LEFT);
 
@@ -44,6 +49,9 @@ public final class AboutWindow {
                 link(tr("about.source"), AppInfo.REPOSITORY, openUrl),
                 link(tr("about.issues"), AppInfo.ISSUES_URL, openUrl),
                 link(tr("about.nut"), AppInfo.NUT_URL, openUrl));
+        if (updateVersion != null && !updateVersion.isBlank()) {
+            links.getChildren().add(link(tr("about.updateAvailable", updateVersion), AppInfo.RELEASES_PAGE, openUrl));
+        }
 
         Label details = new Label(AppInfo.supportSummary(configDir));
         details.getStyleClass().add("about-details");

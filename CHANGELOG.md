@@ -4,6 +4,26 @@ All notable changes to Nux are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Update notice: Nux checks GitHub once a day for a newer release and shows an
+  "Update available" pill in the toolbar; clicking it opens the release page
+  and stops mentioning that version. The About window shows the same line, and
+  the palette has a manual **Check for updates…** that ignores the throttle.
+  Turn the automatic check off in Settings → Tray. The check is an ordinary
+  HTTPS GET of a public endpoint and sends nothing about the user.
+  The timestamp is stamped *before* the request, so a failing check throttles
+  itself instead of retrying on every launch.
+  Nux has no JSON library, and taking one for four fields would have been a
+  poor trade, so the payload is read by a small depth-aware scanner
+  (`TopLevelJson`) that only sees top-level keys — necessary because a release
+  payload repeats `html_url` and `name` inside its nested `author` and
+  `assets[]` objects, where naive extraction would happily return an asset's
+  name as the release name. Tested against that exact shape, and the parser
+  verified against a real 13 KB payload from the live API.
+
 ## [0.4.0] - 2026-08-03
 
 ### Added
