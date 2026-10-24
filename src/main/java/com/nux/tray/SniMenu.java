@@ -1,5 +1,7 @@
 package com.nux.tray;
 
+import static com.nux.i18n.Messages.tr;
+
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -61,7 +63,7 @@ public interface SniMenu extends DBusInterface {
         private final Runnable onOpen;
         private final Runnable onQuit;
         private final AtomicInteger revision = new AtomicInteger(1);
-        private volatile String statusLine = "Not connected";
+        private volatile String statusLine = tr("tray.notConnected");
 
         Impl(Runnable onOpen, Runnable onQuit) {
             this.onOpen = onOpen;

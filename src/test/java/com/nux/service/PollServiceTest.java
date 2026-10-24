@@ -17,7 +17,9 @@ import org.junit.jupiter.api.Test;
 
 import com.nux.protocol.FakeNutServer;
 import com.nux.protocol.TlsMode;
+import com.nux.protocol.UpsDevice;
 import com.nux.protocol.UpsSnapshot;
+import com.nux.protocol.UpsStatus;
 
 /**
  * Drives the real polling loop against a scripted upsd. The UI marshaller is injected
@@ -69,7 +71,7 @@ class PollServiceTest {
         scriptOneUps();
         BlockingQueue<List<String>> connected = new ArrayBlockingQueue<>(4);
         BlockingQueue<UpsSnapshot> snapshots = new ArrayBlockingQueue<>(4);
-        poll.setOnConnected(devices -> connected.offer(devices.stream().map(d -> d.name()).toList()));
+        poll.setOnConnected((devices, target) -> connected.offer(devices.stream().map(d -> d.name()).toList()));
         poll.setOnSnapshot(snapshots::offer);
 
         start();
@@ -243,6 +245,143 @@ class PollServiceTest {
         assertEquals(2, all.size());
         assertTrue(all.get("a").status().online());
         assertTrue(all.get("b").status().onBattery());
+    }
+
+    @Test
+    void aStaleUpsKeepsItsOverviewCardInsteadOfSinkingTheOverview() throws Exception {
+        server.on("LIST UPS", "BEGIN LIST UPS", "UPS a \"A\"", "UPS b \"B\"", "END LIST UPS")
+                .on("LIST VAR a", "BEGIN LIST VAR a", "VAR a ups.status \"OL\"", "END LIST VAR a")
+                .on("LIST VAR b", "ERR DATA-STALE")
+                .on("LIST CMD a", "BEGIN LIST CMD a", "END LIST CMD a");
+        BlockingQueue<Map<String, UpsSnapshot>> overviews = new ArrayBlockingQueue<>(4);
+        BlockingQueue<String> failures = new ArrayBlockingQueue<>(4);
+        poll.setOnOverview(overviews::offer);
+        poll.setOnDisconnected(failures::offer);
+        start();
+
+        Map<String, UpsSnapshot> all = take(overviews);
+        assertEquals(List.of("a", "b"), List.copyOf(all.keySet()));
+        assertTrue(all.get("a").status().online());
+        assertTrue(all.get("b").vars().isEmpty(), "the stale UPS is shown without data");
+        assertEquals(UpsStatus.Severity.WARNING, all.get("b").status().severity(), "unknown is never OK");
+        assertTrue(failures.isEmpty(), "a refusal for one UPS is not a lost connection");
+    }
+
+    @Test
+    void anUnknownUpsNameFallsBackToTheFirstListedAndSaysSo() throws Exception {
+        // e.g. the user pointed Settings at another server, or renamed the UPS in ups.conf:
+        // polling the missing name would fail and reconnect every tick, forever.
+        scriptOneUps();
+        BlockingQueue<String> targets = new ArrayBlockingQueue<>(4);
+        BlockingQueue<UpsSnapshot> snapshots = new ArrayBlockingQueue<>(4);
+        BlockingQueue<String> failures = new ArrayBlockingQueue<>(4);
+        poll.setOnConnected((devices, target) -> targets.offer(target));
+        poll.setOnSnapshot(snapshots::offer);
+        poll.setOnDisconnected(failures::offer);
+
+        poll.start(server.host(), server.port(), "gone", TlsMode.DISABLED);
+
+        assertEquals("cp", take(targets));
+        assertEquals("cp", take(snapshots).ups());
+        assertFalse(server.received().contains("LIST VAR gone"));
+        assertTrue(failures.isEmpty());
+    }
+
+    @Test
+    void aRequestedUpsTheServerHasIsKept() {
+        List<UpsDevice> devices = List.of(new UpsDevice("a", "A"), new UpsDevice("b", "B"));
+        assertEquals("b", PollService.resolveTarget("b", devices));
+        assertEquals("a", PollService.resolveTarget(null, devices));
+        assertEquals("a", PollService.resolveTarget("gone", devices));
+        assertEquals(null, PollService.resolveTarget("b", List.of()));
+    }
+
+    @Test
+    void aRuntimeFailureIsReportedAndPollingCarriesOn() throws Exception {
+        // A port out of range throws IllegalArgumentException, not IOException. Escaping a
+        // fixed-delay task would cancel it silently and leave the UI "connecting" forever.
+        BlockingQueue<String> failures = new ArrayBlockingQueue<>(4);
+        poll.setOnDisconnected(failures::offer);
+        poll.start(server.host(), 99999, null, TlsMode.DISABLED);
+        assertTrue(take(failures).contains("99999"));
+        // Still scheduled: the next tick reports again instead of the task having died.
+        assertTrue(take(failures).contains("99999"));
+    }
+
+    @Test
+    void aCommandTheUpsRefusesKeepsTheConnectionAndItsLogin() throws Exception {
+        // CMD-NOT-SUPPORTED says nothing about the connection or the password: dropping
+        // either forced a reconnect and a needless credentials prompt.
+        scriptOneUps();
+        server.on("USERNAME nuxuser", "OK")
+                .on("PASSWORD s3cret", "OK")
+                .on("SET TRACKING ON", "ERR FEATURE-NOT-CONFIGURED")
+                .on("INSTCMD cp load.on", "ERR CMD-NOT-SUPPORTED")
+                .on("INSTCMD cp beeper.toggle", "OK");
+        BlockingQueue<UpsSnapshot> snapshots = new ArrayBlockingQueue<>(16);
+        poll.setOnSnapshot(snapshots::offer);
+        start();
+        take(snapshots);
+
+        BlockingQueue<String> results = new ArrayBlockingQueue<>(4);
+        poll.runInstCmd("cp", "nuxuser", "s3cret", "load.on", (ok, message) -> results.offer(ok + ":" + message));
+        assertEquals("false:CMD-NOT-SUPPORTED", take(results));
+        poll.runInstCmd("cp", "nuxuser", "s3cret", "beeper.toggle", (ok, message) -> results.offer(ok + ":" + message));
+        assertEquals("true:OK", take(results));
+        assertEquals(1, count(server.received(), "USERNAME nuxuser"), "logged in once, on one connection");
+    }
+
+    @Test
+    void anAccessDeniedCommandDropsTheLoginSoAnotherUserCanTry() throws Exception {
+        scriptOneUps();
+        server.on("USERNAME viewer", "OK")
+                .on("PASSWORD pw", "OK")
+                .on("SET TRACKING ON", "ERR FEATURE-NOT-CONFIGURED")
+                .on("INSTCMD cp beeper.toggle", "ERR ACCESS-DENIED")
+                .on("USERNAME admin", "OK")
+                .on("PASSWORD pw2", "OK");
+        BlockingQueue<UpsSnapshot> snapshots = new ArrayBlockingQueue<>(16);
+        poll.setOnSnapshot(snapshots::offer);
+        start();
+        take(snapshots);
+
+        BlockingQueue<String> results = new ArrayBlockingQueue<>(4);
+        poll.runInstCmd("cp", "viewer", "pw", "beeper.toggle", (ok, message) -> results.offer(ok + ":" + message));
+        assertEquals("false:ACCESS-DENIED", take(results));
+        take(snapshots); // the next tick reconnects
+        poll.runInstCmd("cp", "admin", "pw2", "beeper.toggle", (ok, message) -> results.offer(ok + ":" + message));
+        // Not "Already authenticated as viewer": the second user gets a clean connection.
+        assertFalse(take(results).contains("Already authenticated"));
+    }
+
+    @Test
+    void restartingReplacesThePollTaskInsteadOfStackingAnother() throws Exception {
+        // Each UPS switch calls start(); a superseded task used to stay scheduled forever,
+        // waking every 5 s as a no-op — one more per switch for the life of the app.
+        scriptOneUps();
+        BlockingQueue<UpsSnapshot> snapshots = new ArrayBlockingQueue<>(16);
+        poll.setOnSnapshot(snapshots::offer);
+        for (int i = 0; i < 5; i++) {
+            start();
+        }
+        take(snapshots);
+        // Between ticks the one live poll waits in the queue; it may be mid-run (0) but never more.
+        assertTrue(awaitQueued(n -> n <= 1), "superseded poll tasks are still queued: " + poll.queuedTasks());
+
+        poll.stop();
+        assertTrue(awaitQueued(n -> n == 0), "stop() left a poll task queued: " + poll.queuedTasks());
+    }
+
+    /** The queue drains asynchronously (dropConnection runs on the poll thread), so poll briefly. */
+    private boolean awaitQueued(java.util.function.IntPredicate condition) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
+        while (System.nanoTime() < deadline) {
+            if (condition.test(poll.queuedTasks())) {
+                return true;
+            }
+            Thread.sleep(20);
+        }
+        return false;
     }
 
     @Test

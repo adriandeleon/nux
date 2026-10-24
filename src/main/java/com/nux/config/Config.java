@@ -24,7 +24,7 @@ public record Config(
 
     public static Config defaults() {
         return new Config(
-                List.of(), "localhost", NutClient.DEFAULT_PORT, "", false, false, false, true, true, "battery", true,
+                List.of(), "localhost", NutClient.DEFAULT_PORT, "", false, false, true, true, true, "battery", true,
                 Advanced.defaults());
     }
 

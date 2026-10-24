@@ -14,4 +14,16 @@ public class NutException extends IOException {
     public String code() {
         return code;
     }
+
+    /**
+     * True for the codes that mean the credentials (or what they are allowed to do) are
+     * wrong — the only failures where asking for them again can help.
+     */
+    public static boolean isAuthFailure(String code) {
+        return switch (code) {
+            case "ACCESS-DENIED", "INVALID-USERNAME", "INVALID-PASSWORD", "USERNAME-REQUIRED", "PASSWORD-REQUIRED" ->
+                true;
+            default -> false;
+        };
+    }
 }

@@ -82,4 +82,17 @@ public final class NutParser {
         }
         return new UpsVar(t.get(1), t.get(2), t.get(3));
     }
+
+    /**
+     * A request argument as upsd's tokenizer will read it back: bare when it is a plain
+     * word, else double-quoted with {@code \\} and {@code \"} escaped. Sent bare, a
+     * password containing a space split into two arguments and one containing a quote
+     * or backslash was rewritten by upsd's parser.
+     */
+    public static String quoteIfNeeded(String value) {
+        if (!value.isEmpty() && value.chars().allMatch(c -> c > ' ' && c != '"' && c != '\\' && c != 127)) {
+            return value;
+        }
+        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+    }
 }

@@ -1,5 +1,7 @@
 package com.nux.ui;
 
+import static com.nux.i18n.Messages.tr;
+
 import java.util.List;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -29,9 +31,12 @@ import com.nux.protocol.RwVariable;
  */
 public final class VariablesWindow {
 
-    /** Applies a value; the callback reports (ok, message). */
+    /**
+     * Applies a value; the callback reports (ok, message). The window passes its own UPS:
+     * it isn't modal, so the main window's selection may have moved on since it opened.
+     */
     public interface Setter {
-        void set(String variable, String value, BiConsumer<Boolean, String> onResult);
+        void set(String ups, String variable, String value, BiConsumer<Boolean, String> onResult);
     }
 
     /** Re-reads the writable variables, handing them back on the FX thread. */
@@ -42,6 +47,9 @@ public final class VariablesWindow {
     private VariablesWindow() {}
 
     public static void show(Window owner, String ups, List<RwVariable> variables, Setter setter, Reloader reloader) {
+        if (Windows.raise("variables:" + ups)) {
+            return;
+        }
         ListView<RwVariable> list = new ListView<>();
         list.getItems().setAll(variables);
         list.setCellFactory(v -> new ListCell<>() {
@@ -53,13 +61,13 @@ public final class VariablesWindow {
         });
         VBox.setVgrow(list, Priority.ALWAYS);
 
-        Label hint = new Label("Select a variable to edit");
+        Label hint = new Label(tr("variables.select"));
         hint.getStyleClass().add("detail-name");
         HBox editorRow = new HBox(10);
         editorRow.setAlignment(Pos.CENTER_LEFT);
         Label status = new Label();
 
-        Button apply = new Button("Apply");
+        Button apply = new Button(tr("variables.apply"));
         apply.setDisable(true);
 
         // A successful write must be reflected in the list, or the row keeps showing the
@@ -81,7 +89,7 @@ public final class VariablesWindow {
             status.setText("");
             if (selected == null) {
                 apply.setDisable(true);
-                hint.setText("Select a variable to edit");
+                hint.setText(tr("variables.select"));
                 return;
             }
             hint.setText(describe(selected));
@@ -92,44 +100,46 @@ public final class VariablesWindow {
                     combo.getItems().setAll(selected.options());
                     combo.setValue(selected.value());
                     editorRow.getChildren().addAll(new Label(selected.name()), combo);
-                    apply.setOnAction(e -> applyValue(selected, combo.getValue(), setter, status, refresh));
+                    apply.setOnAction(e -> applyValue(ups, selected, combo.getValue(), setter, status, refresh));
                 }
                 default -> {
                     TextField field = new TextField(selected.value());
                     field.setPrefColumnCount(16);
                     editorRow.getChildren().addAll(new Label(selected.name()), field);
-                    apply.setOnAction(e -> applyValue(selected, field.getText().trim(), setter, status, refresh));
+                    apply.setOnAction(e -> applyValue(ups, selected, field.getText().trim(), setter, status, refresh));
                 }
             }
         });
 
         Stage stage = new Stage();
-        Button close = new Button("Close");
+        Button close = new Button(tr("variables.close"));
         close.setOnAction(e -> stage.close());
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         HBox buttons = new HBox(10, status, spacer, apply, close);
         buttons.setAlignment(Pos.CENTER_LEFT);
 
-        VBox root = new VBox(10, new Label("Writable variables on " + ups), list, hint, editorRow, buttons);
+        VBox root = new VBox(10, new Label(tr("variables.heading", ups)), list, hint, editorRow, buttons);
         root.setPadding(new Insets(14));
 
         stage.initOwner(owner);
-        stage.setTitle("Nux Variables — " + ups);
+        stage.setTitle(tr("variables.title", ups));
         Scene scene = new Scene(root, 520, 520);
         scene.getStylesheets().add(VariablesWindow.class.getResource("/com/nux/nux.css").toExternalForm());
         stage.setScene(scene);
+        Windows.track("variables:" + ups, stage);
         stage.show();
     }
 
-    private static void applyValue(RwVariable variable, String value, Setter setter, Label status, Runnable refresh) {
+    private static void applyValue(
+            String ups, RwVariable variable, String value, Setter setter, Label status, Runnable refresh) {
         if (!variable.accepts(value)) {
-            status.setText("Value not allowed for " + variable.name());
+            status.setText(tr("variables.notAllowed", variable.name()));
             return;
         }
-        status.setText("Applying…");
-        setter.set(variable.name(), value, (ok, message) -> {
-            status.setText(ok ? "Applied" : "Failed: " + message);
+        status.setText(tr("variables.applying"));
+        setter.set(ups, variable.name(), value, (ok, message) -> {
+            status.setText(ok ? tr("variables.applied") : tr("variables.failed", message));
             if (ok) {
                 refresh.run();
             }
@@ -138,10 +148,10 @@ public final class VariablesWindow {
 
     private static String describe(RwVariable v) {
         return switch (v.kind()) {
-            case ENUM -> "One of: " + String.join(", ", v.options());
-            case RANGE -> "Number between " + fmt(v.min()) + " and " + fmt(v.max());
-            case NUMBER -> "Numeric value";
-            case STRING -> v.maxLength() > 0 ? "Text, up to " + v.maxLength() + " characters" : "Text";
+            case ENUM -> tr("variables.enumHint", String.join(", ", v.options()));
+            case RANGE -> tr("variables.rangeHint", fmt(v.min()), fmt(v.max()));
+            case NUMBER -> tr("variables.numberHint");
+            case STRING -> v.maxLength() > 0 ? tr("variables.textHintMax", v.maxLength()) : tr("variables.textHint");
         };
     }
 

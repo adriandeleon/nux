@@ -1,5 +1,7 @@
 package com.nux.update;
 
+import static com.nux.i18n.Messages.tr;
+
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.URI;
@@ -90,7 +92,10 @@ public final class UpdateService {
             HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
             if (response.statusCode() / 100 != 2) {
                 response.body().close();
-                return new Outcome(false, null, "HTTP " + response.statusCode());
+                // GitHub's unauthenticated API allows 60 requests an hour per address.
+                return new Outcome(false, null, response.statusCode() == 403 || response.statusCode() == 429
+                        ? tr("update.rateLimited")
+                        : "HTTP " + response.statusCode());
             }
             String body;
             try (InputStream in = response.body()) {
@@ -103,6 +108,11 @@ public final class UpdateService {
             return new Outcome(UpdateCheck.isNewer(current, latest.version()), latest, null);
         } catch (Exception e) {
             LOG.log(System.Logger.Level.DEBUG, "update check failed", e);
+            if (e instanceof java.net.ConnectException
+                    || e instanceof java.net.UnknownHostException
+                    || e instanceof java.net.http.HttpTimeoutException) {
+                return new Outcome(false, null, tr("update.offline"));
+            }
             String message = e.getMessage();
             return new Outcome(
                     false, null, e.getClass().getSimpleName() + (message == null ? "" : ": " + message));

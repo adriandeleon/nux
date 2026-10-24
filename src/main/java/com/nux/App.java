@@ -2,7 +2,6 @@ package com.nux;
 
 import static com.nux.i18n.Messages.tr;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -20,7 +19,6 @@ import javafx.geometry.Orientation;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
-import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Menu;
@@ -46,33 +44,30 @@ import atlantafx.base.theme.PrimerDark;
 
 import com.nux.analysis.BatteryHealth;
 import com.nux.analysis.EnergyEstimate;
-import com.nux.analysis.TestSchedule;
+import com.nux.app.CommandRunner;
+import com.nux.app.ConnectionController;
+import com.nux.app.TrayController;
 import com.nux.autostart.Autostart;
 import com.nux.command.CommandRegistry;
 import com.nux.config.Advanced;
 import com.nux.config.Config;
+import com.nux.config.ConfigHolder;
 import com.nux.config.ConfigStore;
 import com.nux.config.Profile;
 import com.nux.i18n.Messages;
 import com.nux.instance.SingleInstance;
-import com.nux.protocol.StatusTransitions;
-import com.nux.protocol.UpsDevice;
 import com.nux.protocol.UpsSnapshot;
-import com.nux.protocol.UpsStatus;
 import com.nux.service.Notifier;
 import com.nux.service.PollService;
 import com.nux.store.EventLog;
-import com.nux.store.HistorySample;
 import com.nux.store.HistoryStore;
-import com.nux.store.UpsEvent;
-import com.nux.tray.NuxTray;
-import com.nux.tray.TrayDisplay;
 import com.nux.tray.TrayMetric;
 import com.nux.tray.Trays;
 import com.nux.update.ReleaseInfo;
 import com.nux.update.UpdateCheck;
 import com.nux.update.UpdateService;
 import com.nux.ui.AboutWindow;
+import com.nux.ui.CommandConfirmation;
 import com.nux.ui.CommandPalette;
 import com.nux.ui.CredentialsDialog;
 import com.nux.ui.Dashboard;
@@ -89,7 +84,7 @@ public final class App extends Application {
     private static final System.Logger LOG = System.getLogger(App.class.getName());
 
     private final Path configPath = ConfigStore.DEFAULT_PATH;
-    private Config config = Config.defaults();
+    private ConfigHolder configHolder;
 
     private final PollService poll = new PollService();
     private final Dashboard dashboard = new Dashboard();
@@ -111,47 +106,61 @@ public final class App extends Application {
     private Stage stage;
     private CommandPalette palette;
     private boolean startMinimized; // --minimized: come up in the tray, not on screen
-    private boolean running;
     private boolean switchingUps; // guards the combo listener during programmatic repopulation
-    private UpsStatus lastStatus; // previous poll's status, for transition alerts
-    private UpsSnapshot lastSnapshot; // latest data, for tray refresh on settings changes
-    private boolean commLost; // a "lost contact" notification was sent and not yet cleared
-    private String authUser; // session-cached upsd credentials for INSTCMD
-    private String authPass;
-    private NuxTray tray;
-    private SingleInstance singleInstance;
-    private TrayDisplay lastTrayDisplay;
-    private String lastTrayTooltip;
+    // The tested, toolkit-free halves of the app; App adapts them to the JavaFX UI.
+    private ConnectionController connection;
+    private CommandRunner commands;
+    private TrayController tray;
+    // Claimed in main(), before the toolkit exists; App only wires the window to it.
+    private static SingleInstance singleInstance;
 
     @Override
     public void start(Stage stage) {
         this.stage = stage;
         Application.setUserAgentStylesheet(new PrimerDark().getUserAgentStylesheet());
 
-        config = ConfigStore.load(configPath);
+        configHolder = ConfigHolder.load(configPath);
         // Only honour --minimized when there is a tray to minimise to, or the app would
         // start invisible with no way to reach it.
-        startMinimized = getParameters().getRaw().contains("--minimized") && config.tray();
-        history = new HistoryStore(configPath.getParent(), config.advanced().historyDays());
+        startMinimized = getParameters().getRaw().contains("--minimized") && config().tray();
+        history = new HistoryStore(configPath.getParent(), config().advanced().historyDays());
         events = new EventLog(configPath.getParent());
-        upsCombo.setPromptText("UPS");
+        connection = new ConnectionController(
+                configHolder, poll, history, events, new ConnectionView(), Notifier::send, Instant::now);
+        commands = new CommandRunner(
+                configHolder, poll, connection, events, new DialogPrompts(), Notifier::send, Instant::now,
+                ZoneId.systemDefault());
+        connection.setAfterSnapshot(commands::maybeRunScheduledTest);
+        tray = new TrayController(
+                configHolder,
+                () -> Trays.create(this::raiseWindow, () -> Platform.runLater(Platform::exit)),
+                work -> {
+                    // Backend creation touches D-Bus/AWT and may block briefly.
+                    Thread init = new Thread(work, "nux-tray-init");
+                    init.setDaemon(true);
+                    init.start();
+                },
+                Platform::runLater,
+                new MainWindow());
+
+        upsCombo.setPromptText(tr("toolbar.ups"));
         upsCombo.setDisable(true);
         commandsButton.setDisable(true);
         connLabel.getStyleClass().add("conn-label");
-        refreshConnLabel();
+        connection.showServer();
         rebuildProfilesMenu();
 
-        connectButton.setOnAction(e -> toggleConnect());
+        connectButton.setOnAction(e -> connection.toggle());
         upsCombo.valueProperty().addListener((obs, old, selected) -> {
-            if (!switchingUps && running && selected != null) {
-                startFresh(selected);
-                saveConfig(config.withLast(config.lastHost(), config.lastPort(), selected, config.lastTls()));
+            if (!switchingUps && selected != null) {
+                connection.switchUps(selected);
             }
         });
         Button settingsButton = new Button(tr("toolbar.settings"));
         settingsButton.setOnAction(e -> openSettings());
         Button aboutButton = new Button("?");
         aboutButton.setTooltip(new javafx.scene.control.Tooltip(tr("toolbar.about", AppInfo.NAME)));
+        aboutButton.setAccessibleText(tr("toolbar.about", AppInfo.NAME)); // "?" means nothing read aloud
         aboutButton.setOnAction(e -> openAbout());
         updateButton.getStyleClass().add("update-badge");
         updateButton.setOnAction(e -> openUpdateDownloadPage());
@@ -186,16 +195,17 @@ public final class App extends Application {
         content.setCenter(split);
         StackPane root = new StackPane(content); // StackPane so the palette can overlay in-scene
 
-        wirePollService();
-        poll.setOnOverview(all -> dashboard.setOverview(all, upsCombo.getValue(), upsCombo::setValue));
         palette = new CommandPalette(root, registry::all);
         registerCommands();
 
-        Scene scene = new Scene(root, 960, 760);
+        Scene scene = new Scene(root, 960, 720);
         scene.getStylesheets().add(App.class.getResource("/com/nux/nux.css").toExternalForm());
         scene.getAccelerators().put(KeyCombination.keyCombination("Shortcut+Shift+P"), palette::toggle);
         scene.getAccelerators().put(KeyCombination.keyCombination("Shortcut+Comma"), this::openSettings);
         stage.setScene(scene);
+        // The gauges are fixed-size canvases (~620 px across); below this they clip.
+        stage.setMinWidth(720);
+        stage.setMinHeight(560);
         stage.setTitle("Nux");
         for (int size : new int[] {16, 32, 64, 128, 256}) {
             var icon = App.class.getResource("/com/nux/icons/nux-" + size + ".png");
@@ -205,7 +215,7 @@ public final class App extends Application {
         }
         // With a tray, closing hides; without one (or with closeToTray off), close quits.
         stage.setOnCloseRequest(e -> {
-            if (tray != null && config.closeToTray()) {
+            if (tray.closeHidesWindow()) {
                 e.consume();
                 stage.hide();
             }
@@ -214,12 +224,12 @@ public final class App extends Application {
             stage.show();
         }
 
-        initTray();
+        tray.start();
         claimSingleInstance();
-        if (config.autoConnect() && !config.lastHost().isBlank()) {
-            connect();
+        if (config().autoConnect() && !config().lastHost().isBlank()) {
+            connection.connect();
         }
-        pruneHistory();
+        history.schedulePruning();
         maybeCaptureScreenshot();
         maybeCheckForUpdates();
     }
@@ -246,17 +256,6 @@ public final class App extends Application {
                 });
     }
 
-    /** Applies the retention window once per launch, off the FX thread. */
-    private void pruneHistory() {
-        String ups = config.lastUps();
-        if (ups == null || ups.isBlank()) {
-            return;
-        }
-        Thread pruner = new Thread(() -> history.prune(ups), "nux-history-prune");
-        pruner.setDaemon(true);
-        pruner.start();
-    }
-
     /** Brings the window up from the tray, another instance's request, or a minimised start. */
     private void raiseWindow() {
         Platform.runLater(() -> {
@@ -268,18 +267,14 @@ public final class App extends Application {
     }
 
     /**
-     * Claims the single-instance lock so a later launch raises this window instead of
-     * starting a rival that would poll the same UPS twice. Failure is not fatal: the app
-     * runs regardless rather than leaving the user with nothing.
+     * Points the single-instance listener (claimed in {@link #main}) at this window, so a
+     * later launch raises it instead of starting a rival that would poll the same UPS
+     * twice. A request that arrived before the window existed is delivered now.
      */
     private void claimSingleInstance() {
-        if (!config.advanced().singleInstance()) {
-            return;
+        if (singleInstance != null) {
+            singleInstance.setOnActivate(this::raiseWindow);
         }
-        SingleInstance.acquire(instanceLockFile()).ifPresent(instance -> {
-            singleInstance = instance;
-            instance.setOnActivate(this::raiseWindow);
-        });
     }
 
     @Override
@@ -299,138 +294,198 @@ public final class App extends Application {
         System.exit(0);
     }
 
-    private void wirePollService() {
-        poll.setOnConnected(this::onConnected);
-        poll.setOnSnapshot(this::onSnapshot);
-        poll.setOnCommands(this::onCommands);
-        poll.setOnDisconnected(this::onDisconnected);
-    }
-
     // --- Commands (palette) ---------------------------------------------------
 
     private void registerCommands() {
-        registry.register("app.connect", tr("command.connect"), this::toggleConnect);
+        registry.register("app.connect", tr("command.connect"), () -> connection.toggle());
         registry.register("app.settings", tr("command.settings"), this::openSettings);
         registry.register("app.saveProfile", tr("command.saveProfile"), this::saveCurrentAsProfile);
         registry.register("app.history", tr("command.history"), this::openHistory);
         registry.register("app.events", tr("command.events"), this::openEvents);
         registry.register("app.variables", tr("command.variables"), this::openVariables);
-        registry.register("app.selfTest", tr("command.selfTest"), this::runSelfTestNow);
+        registry.register("app.selfTest", tr("command.selfTest"), () -> commands.runSelfTestNow());
         registry.register("app.discover", tr("command.discover"), this::openDiscovery);
         registry.register("app.checkUpdates", tr("command.checkUpdates"), this::checkForUpdatesNow);
         if (Autostart.isSupported()) {
-            registry.register("app.autostart", "Toggle start at login", () -> {
-                boolean now = !Autostart.isEnabled();
-                Autostart.setEnabled(now, config.tray());
+            registry.register("app.autostart", tr("command.autostart"), () -> {
+                // reg.exe / launchctl: OS work, never on the FX thread.
+                boolean minimized = config().tray();
+                Thread toggle = new Thread(
+                        () -> Autostart.setEnabled(!Autostart.isEnabled(), minimized), "nux-autostart");
+                toggle.setDaemon(true);
+                toggle.start();
             });
         }
         registry.register("app.about", tr("command.about"), this::openAbout);
         registry.register("app.quit", tr("command.quit"), Platform::exit);
         for (TrayMetric metric : TrayMetric.values()) {
             registry.register(
-                    "tray.metric." + metric.key(), "Tray: show " + metric.label(), () -> setTrayMetric(metric));
+                    "tray.metric." + metric.key(), tr("command.trayMetric", metric.label()), () -> setTrayMetric(metric));
         }
         refreshProfileCommands();
     }
 
     private void refreshProfileCommands() {
         registry.removeByPrefix("profile.connect.");
-        for (Profile profile : config.profiles()) {
+        for (Profile profile : config().profiles()) {
             registry.register(
                     "profile.connect." + profile.name(),
-                    "Connect to profile: " + profile.name(),
-                    () -> connectProfile(profile));
+                    tr("command.connectProfile", profile.name()),
+                    () -> connection.connectProfile(profile));
         }
     }
 
     private void setTrayMetric(TrayMetric metric) {
-        saveConfig(config.withTrayMetric(metric.key()));
-        refreshTray();
+        configHolder.update(c -> c.withTrayMetric(metric.key()));
+        tray.refresh();
     }
 
-    // --- Connection lifecycle -------------------------------------------------
-
-    private void toggleConnect() {
-        if (running) {
-            disconnect();
-        } else {
-            connect();
-        }
+    private Config config() {
+        return configHolder.get();
     }
 
-    private void connect() {
-        running = true;
-        connectButton.setText(tr("toolbar.disconnect"));
-        String ups = upsCombo.getValue() != null
-                ? upsCombo.getValue()
-                : (config.lastUps().isBlank() ? null : config.lastUps());
-        poll.start(config.lastHost(), config.lastPort(), ups, config.tlsModeFor(config.lastTls()));
-    }
+    // --- Connection → UI ------------------------------------------------------
 
-    private void disconnect() {
-        running = false;
-        poll.stop();
-        connectButton.setText(tr("toolbar.connect"));
-        upsCombo.setDisable(true);
-        commandsButton.setDisable(true);
-        dashboard.showDisconnected("Stopped");
-        lastSnapshot = null;
-        commLost = false;
-        refreshTray();
-        saveConfig(config.withAutoConnect(false));
-    }
-
-    /** Restart polling against a (possibly) different target: history and alert state reset. */
-    private void startFresh(String ups) {
-        lastStatus = null;
-        lastSnapshot = null;
-        commLost = false;
-        commandsButton.setDisable(true);
-        dashboard.resetHistory();
-        poll.start(config.lastHost(), config.lastPort(), ups, config.tlsModeFor(config.lastTls()));
-    }
-
-    private void onConnected(List<UpsDevice> devices) {
-        switchingUps = true;
-        try {
-            String preferred = upsCombo.getValue() != null ? upsCombo.getValue() : config.lastUps();
-            upsCombo.getItems().setAll(devices.stream().map(UpsDevice::name).toList());
-            if (preferred != null && upsCombo.getItems().contains(preferred)) {
-                upsCombo.setValue(preferred);
-            } else if (!upsCombo.getItems().isEmpty()) {
-                upsCombo.setValue(upsCombo.getItems().getFirst());
+    /** How the connection's state reaches the toolbar, dashboard, variables table and tray. */
+    private final class ConnectionView implements ConnectionController.View {
+        @Override
+        public void showRunning(boolean running) {
+            connectButton.setText(running ? tr("toolbar.disconnect") : tr("toolbar.connect"));
+            if (!running) {
+                upsCombo.setDisable(true);
             }
-        } finally {
-            switchingUps = false;
         }
-        upsCombo.setDisable(upsCombo.getItems().isEmpty());
-        if (commLost) {
-            notifyUser("Nux", tr("alert.contactRestored"), false);
-            commLost = false;
+
+        @Override
+        public void showUpsChoices(List<String> names, String selected) {
+            switchingUps = true;
+            try {
+                upsCombo.getItems().setAll(names);
+                upsCombo.setValue(selected);
+            } finally {
+                switchingUps = false;
+            }
+            upsCombo.setDisable(names.isEmpty());
         }
-        saveConfig(config.withLast(config.lastHost(), config.lastPort(), upsCombo.getValue(), config.lastTls())
-                .withAutoConnect(true));
+
+        @Override
+        public void clearUpsChoices() {
+            switchingUps = true;
+            try {
+                upsCombo.getItems().clear();
+                upsCombo.setValue(null);
+            } finally {
+                switchingUps = false;
+            }
+        }
+
+        @Override
+        public void showServer(String host, int port, boolean tls) {
+            connLabel.setText(host + ":" + port + (tls ? "  (TLS)" : ""));
+        }
+
+        @Override
+        public void showSnapshot(UpsSnapshot snapshot) {
+            dashboard.update(snapshot);
+            varRows.setAll(snapshot.vars().entrySet());
+            updateAnalysis(snapshot);
+            tray.show(snapshot);
+        }
+
+        @Override
+        public void showCommands(List<String> names) {
+            commandsButton.getItems().clear();
+            registry.removeByPrefix("ups.cmd.");
+            for (String command : names) {
+                MenuItem item = new MenuItem(command);
+                item.setOnAction(e -> commands.run(command));
+                commandsButton.getItems().add(item);
+                registry.register("ups.cmd." + command, tr("command.upsCommand", command), () -> commands.run(command));
+            }
+            commandsButton.setDisable(names.isEmpty());
+        }
+
+        @Override
+        public void showOverview(Map<String, UpsSnapshot> all, String selected) {
+            dashboard.setOverview(all, selected, name -> {
+                // A card click is a pick in the toolbar's UPS list, which then switches.
+                upsCombo.setValue(name);
+            });
+        }
+
+        @Override
+        public void clearLiveData() {
+            varRows.clear();
+            commandsButton.getItems().clear();
+            commandsButton.setDisable(true);
+            registry.removeByPrefix("ups.cmd.");
+        }
+
+        @Override
+        public void resetTrends() {
+            dashboard.resetHistory();
+        }
+
+        @Override
+        public void showDisconnected(String reason) {
+            dashboard.showDisconnected(reason);
+            tray.showIdle(true);
+        }
+
+        @Override
+        public void showStopped() {
+            dashboard.showStopped();
+            tray.showIdle(false);
+        }
     }
 
-    private void onSnapshot(UpsSnapshot snapshot) {
-        dashboard.update(snapshot);
-        varRows.setAll(snapshot.vars().entrySet());
-        lastSnapshot = snapshot;
-        history.record(snapshot.ups(), HistorySample.of(snapshot));
-        updateAnalysis(snapshot);
-
-        UpsStatus status = snapshot.status();
-        StatusTransitions.Alert alert = StatusTransitions.alert(lastStatus, status);
-        if (alert != null) {
-            // The alert carries catalogue keys; resolve them once, here at the edge.
-            String title = tr(alert.titleKey());
-            String body = tr(alert.bodyKey());
-            notifyUser(title, body, alert.critical());
-            events.append(UpsEvent.now(snapshot.ups(), alert.critical(), title, body));
+    /** The dialogs commands need, on the main window. */
+    private final class DialogPrompts implements CommandRunner.Prompts {
+        @Override
+        public boolean confirm(String command, String ups) {
+            Alert confirm = CommandConfirmation.create(command, ups);
+            confirm.initOwner(stage);
+            return CommandConfirmation.confirmed(confirm.showAndWait());
         }
-        lastStatus = status;
-        pushTray(TrayDisplay.of(snapshot, TrayMetric.from(config.trayMetric())), TrayDisplay.tooltip(snapshot));
-        maybeRunScheduledTest(snapshot.ups());
+
+        @Override
+        public Optional<CommandRunner.Credentials> credentials(String header, String initialUser) {
+            return CredentialsDialog.show(stage, header, initialUser)
+                    .map(c -> new CommandRunner.Credentials(c.user(), c.password()));
+        }
+
+        @Override
+        public void info(String title, String body) {
+            App.this.info(title, body);
+        }
+
+        @Override
+        public void commandFailed(String command, String reason) {
+            Alert error = new Alert(Alert.AlertType.ERROR);
+            error.initOwner(stage);
+            error.setTitle(tr("dialog.commandFailed.title"));
+            error.setHeaderText(tr("dialog.commandFailed.header", command));
+            error.setContentText(reason);
+            error.show();
+        }
+    }
+
+    /** What the tray policy needs from the main window and the toolkit. */
+    private final class MainWindow implements TrayController.Window {
+        @Override
+        public boolean isShowing() {
+            return stage.isShowing();
+        }
+
+        @Override
+        public void show() {
+            stage.show();
+        }
+
+        @Override
+        public void setImplicitExit(boolean exitOnLastClose) {
+            Platform.setImplicitExit(exitOnLastClose);
+        }
     }
 
     /** Battery age/health and estimated power draw, derived from the latest snapshot. */
@@ -443,89 +498,28 @@ public final class App extends Application {
                 .map(d -> BatteryHealth.ageLabel(BatteryHealth.ageMonths(d, today)))
                 .orElse(health == BatteryHealth.Status.REPLACE ? "" : "—");
         if (health == BatteryHealth.Status.REPLACE) {
-            ageText = ageText.isEmpty() ? "replace" : ageText + " — replace";
+            ageText = ageText.isEmpty() ? tr("dashboard.replaceNow") : tr("dashboard.replace", ageText);
         } else if (health == BatteryHealth.Status.AGING) {
-            ageText = ageText + " — aging";
+            ageText = tr("dashboard.aging", ageText);
         }
         dashboard.setBatteryAge(ageText, health == BatteryHealth.Status.AGING || health == BatteryHealth.Status.REPLACE);
-        dashboard.setPower(EnergyEstimate.watts(snapshot, config.advanced().nominalWatts())
+        dashboard.setPower(EnergyEstimate.watts(snapshot, config().advanced().nominalWatts())
                 .map(w -> String.format("%.0f W", w))
                 .orElse("—"));
-    }
-
-    /**
-     * Fires the scheduled self-test when it comes due. Credentials are session-only by
-     * design, so a schedule can only run once the user has authenticated at least once;
-     * lastRun is stamped *before* the command so a failing test can't retry every tick.
-     */
-    private void maybeRunScheduledTest(String ups) {
-        Advanced adv = config.advanced();
-        if (!adv.selfTestEnabled() || authPass == null || authUser == null) {
-            return;
-        }
-        if (!TestSchedule.isDue(
-                adv.selfTestLastRun(),
-                adv.selfTestIntervalDays(),
-                TestSchedule.parseTime(adv.selfTestTime()),
-                ZoneId.systemDefault(),
-                Instant.now())) {
-            return;
-        }
-        saveConfig(config.withAdvanced(adv.withSelfTestLastRun(Instant.now().getEpochSecond())));
-        poll.runInstCmd(ups, authUser, authPass, adv.selfTestCommand(), (ok, message) -> events.append(
-                UpsEvent.now(
-                        ups,
-                        !ok,
-                        ok ? tr("alert.selfTestStarted") : tr("alert.selfTestFailed"),
-                        ok ? adv.selfTestCommand() : friendlyCommandError(message))));
-    }
-
-    private void runSelfTestNow() {
-        String ups = upsCombo.getValue();
-        if (ups != null) {
-            runCommand(config.advanced().selfTestCommand());
-        }
-    }
-
-    private void onCommands(List<String> commands) {
-        commandsButton.getItems().clear();
-        registry.removeByPrefix("ups.cmd.");
-        for (String command : commands) {
-            MenuItem item = new MenuItem(command);
-            item.setOnAction(e -> runCommand(command));
-            commandsButton.getItems().add(item);
-            registry.register("ups.cmd." + command, "UPS command: " + command, () -> runCommand(command));
-        }
-        commandsButton.setDisable(commands.isEmpty());
-    }
-
-    private void onDisconnected(String reason) {
-        dashboard.showDisconnected(reason);
-        commandsButton.setDisable(true);
-        lastSnapshot = null;
-        pushTray(TrayDisplay.disconnected(), tr("tray.disconnected"));
-        if (running && !commLost) {
-            commLost = true;
-            notifyUser("Nux", tr("alert.contactLost", reason), false);
-            events.append(UpsEvent.now(upsLabel(), false, "Lost server contact", reason));
-        }
-    }
-
-    private String upsLabel() {
-        return upsCombo.getValue() != null ? upsCombo.getValue() : config.lastHost();
     }
 
     // --- Feature windows ------------------------------------------------------
 
     private void openHistory() {
-        String ups = upsCombo.getValue() != null ? upsCombo.getValue() : config.lastUps();
+        String ups = connection.selectedUps() != null ? connection.selectedUps() : config().lastUps();
         if (ups == null || ups.isBlank()) {
             return;
         }
-        double watts = lastSnapshot != null
-                ? EnergyEstimate.nominalWatts(lastSnapshot, config.advanced().nominalWatts()).orElse(0.0)
-                : config.advanced().nominalWatts();
-        HistoryWindow.show(stage, history, ups, config.advanced(), watts);
+        UpsSnapshot latest = connection.lastSnapshot();
+        double watts = latest != null
+                ? EnergyEstimate.nominalWatts(latest, config().advanced().nominalWatts()).orElse(0.0)
+                : config().advanced().nominalWatts();
+        HistoryWindow.show(stage, history, connection.serverKey(), ups, config().advanced(), watts);
     }
 
     // --- update check ---------------------------------------------------------
@@ -536,13 +530,13 @@ public final class App extends Application {
      * retrying on every launch all day.
      */
     private void maybeCheckForUpdates() {
-        Advanced adv = config.advanced();
+        Advanced adv = config().advanced();
         if (!adv.updateCheck()
                 || !UpdateCheck.isDue(adv.lastUpdateCheckMs(), System.currentTimeMillis(), UpdateCheck.DEFAULT_INTERVAL_MS)) {
             return;
         }
-        saveConfig(config.withAdvanced(
-                adv.withUpdateState(System.currentTimeMillis(), adv.dismissedUpdateVersion())));
+        configHolder.update(c -> c.withAdvanced(
+                c.advanced().withUpdateState(System.currentTimeMillis(), c.advanced().dismissedUpdateVersion())));
         updateService.check(AppInfo.VERSION, outcome -> onUpdateOutcome(outcome, false));
     }
 
@@ -569,7 +563,7 @@ public final class App extends Application {
     private void refreshUpdateNotice() {
         ReleaseInfo info = latestUpdate;
         boolean show = info != null
-                && !info.version().equals(config.advanced().dismissedUpdateVersion());
+                && !info.version().equals(config().advanced().dismissedUpdateVersion());
         if (show) {
             updateButton.setText(tr("update.available", info.version()));
             updateButton.setTooltip(new javafx.scene.control.Tooltip(tr("update.tooltip")));
@@ -583,14 +577,15 @@ public final class App extends Application {
         ReleaseInfo info = latestUpdate;
         getHostServices().showDocument(info != null && !info.url().isBlank() ? info.url() : AppInfo.RELEASES_PAGE);
         if (info != null) {
-            saveConfig(config.withAdvanced(
-                    config.advanced().withUpdateState(config.advanced().lastUpdateCheckMs(), info.version())));
+            configHolder.update(c -> c.withAdvanced(
+                    c.advanced().withUpdateState(c.advanced().lastUpdateCheckMs(), info.version())));
         }
         refreshUpdateNotice();
     }
 
     private void info(String title, String message) {
         Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.initOwner(stage);
         alert.setTitle(title);
         alert.setHeaderText(null);
         alert.setContentText(message);
@@ -609,34 +604,21 @@ public final class App extends Application {
                 latestUpdate == null ? null : latestUpdate.version());
     }
 
-    /** Picking a discovered server points the connection at it and reconnects if running. */
+    /** Picking a discovered server points the connection at it and reconnects. */
     private void openDiscovery() {
-        DiscoveryWindow.show(stage, (host, port) -> {
-            saveConfig(config.withLast(host, port, "", config.lastTls()));
-            refreshConnLabel();
-            switchingUps = true;
-            try {
-                upsCombo.getItems().clear();
-                upsCombo.setValue(null);
-            } finally {
-                switchingUps = false;
-            }
-            if (running) {
-                startFresh(null);
-            } else {
-                connect();
-            }
-        });
+        DiscoveryWindow.show(stage, connection::pointAt);
     }
 
     private void openVariables() {
-        String ups = upsCombo.getValue();
+        String ups = connection.activeUps();
         if (ups == null) {
+            info(tr("error.notConnected"), tr("error.notConnectedBody"));
             return;
         }
         poll.loadRwVariables(ups, variables -> {
             if (variables.isEmpty()) {
                 Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                alert.initOwner(stage);
                 alert.setTitle(tr("variables.noneTitle"));
                 alert.setHeaderText(tr("variables.noneHeader"));
                 alert.setContentText(tr("variables.noneBody"));
@@ -644,201 +626,49 @@ public final class App extends Application {
                 return;
             }
             VariablesWindow.show(
-                    stage, ups, variables, this::setVariable, onLoaded -> poll.loadRwVariables(ups, onLoaded));
+                    stage, ups, variables, commands::setVariable, onLoaded -> poll.loadRwVariables(ups, onLoaded));
         });
-    }
-
-    /** Applies a writable variable, prompting for credentials the same way commands do. */
-    private void setVariable(String name, String value, java.util.function.BiConsumer<Boolean, String> onResult) {
-        String ups = upsCombo.getValue();
-        if (ups == null) {
-            onResult.accept(false, tr("error.notConnected"));
-            return;
-        }
-        if (authPass == null) {
-            Optional<CredentialsDialog.Credentials> creds = CredentialsDialog.show(
-                    tr("dialog.credentials.setvar"), authUser != null ? authUser : "");
-            if (creds.isEmpty() || creds.get().user().isEmpty()) {
-                onResult.accept(false, tr("error.cancelled"));
-                return;
-            }
-            authUser = creds.get().user();
-            authPass = creds.get().password();
-        }
-        poll.setVariable(ups, authUser, authPass, name, value, (ok, message) -> {
-            if (!ok) {
-                authPass = null; // could be bad credentials; re-prompt next time
-            } else {
-                events.append(UpsEvent.now(ups, false, tr("alert.variableChanged"), name + " = " + value));
-            }
-            onResult.accept(ok, ok ? message : friendlyCommandError(message));
-        });
-    }
-
-    private void notifyUser(String title, String message, boolean critical) {
-        if (config.notifications()) {
-            Notifier.send(title, message, critical);
-        }
     }
 
     // --- Settings -------------------------------------------------------------
 
     private void openSettings() {
-        SettingsWindow.show(stage, config, this::applySettings);
+        SettingsWindow.show(stage, config(), this::applySettings);
     }
 
-    private void applySettings(Config updated) {
-        boolean connectionChanged = !updated.lastHost().equals(config.lastHost())
-                || updated.lastPort() != config.lastPort()
-                || updated.lastTls() != config.lastTls();
-        boolean trayToggled = updated.tray() != config.tray();
-        saveConfig(updated);
-        refreshConnLabel();
-        if (trayToggled) {
-            if (config.tray()) {
-                initTray();
-            } else if (tray != null) {
-                tray.dispose();
-                tray = null;
-                Platform.setImplicitExit(true);
-            }
-        }
-        refreshTray();
-        if (running && connectionChanged) {
-            startFresh(upsCombo.getValue());
-        }
-    }
-
-    private void refreshConnLabel() {
-        connLabel.setText(config.lastHost() + ":" + config.lastPort() + (config.lastTls() ? "  (TLS)" : ""));
-    }
-
-    // --- Tray icon ------------------------------------------------------------
-
-    /** Backend creation touches D-Bus/AWT and may block briefly, so it runs off the FX thread. */
-    private void initTray() {
-        if (!config.tray()) {
-            return;
-        }
-        Runnable activate = this::raiseWindow;
-        Runnable quit = () -> Platform.runLater(Platform::exit);
-        Thread init = new Thread(
-                () -> {
-                    Optional<NuxTray> created = Trays.create(activate, quit);
-                    Platform.runLater(() -> {
-                        if (created.isEmpty()) {
-                            // No tray after all: a window started minimised would be
-                            // unreachable, so bring it up rather than hiding forever.
-                            if (startMinimized && !stage.isShowing()) {
-                                stage.show();
-                            }
-                            return;
-                        }
-                        if (!config.tray()) {
-                            created.get().dispose(); // toggled back off while we were starting
-                            return;
-                        }
-                        tray = created.get();
-                        if (config.closeToTray()) {
-                            Platform.setImplicitExit(false);
-                        }
-                        refreshTray();
-                    });
-                },
-                "nux-tray-init");
-        init.setDaemon(true);
-        init.start();
-    }
-
-    /** Recomputes the tray from the latest data (metric/settings changes bypass the dedupe). */
-    private void refreshTray() {
-        lastTrayDisplay = null;
-        lastTrayTooltip = null;
-        if (lastSnapshot != null) {
-            pushTray(
-                    TrayDisplay.of(lastSnapshot, TrayMetric.from(config.trayMetric())),
-                    TrayDisplay.tooltip(lastSnapshot));
-        } else {
-            pushTray(TrayDisplay.disconnected(), running ? tr("tray.disconnected") : tr("tray.notConnected"));
-        }
-    }
-
-    private void pushTray(TrayDisplay display, String tooltip) {
-        if (tray == null || (display.equals(lastTrayDisplay) && tooltip.equals(lastTrayTooltip))) {
-            return;
-        }
-        lastTrayDisplay = display;
-        lastTrayTooltip = tooltip;
-        tray.update(display, tooltip);
-    }
-
-    // --- Instant commands -----------------------------------------------------
-
-    private void runCommand(String command) {
-        String ups = upsCombo.getValue();
-        if (ups == null) {
-            return;
-        }
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
-        confirm.setTitle(tr("dialog.runCommand.title"));
-        confirm.setHeaderText(tr("dialog.runCommand.header", command, ups));
-        confirm.setContentText(tr("dialog.runCommand.body"));
-        if (confirm.showAndWait().filter(b -> b == ButtonType.OK).isEmpty()) {
-            return;
-        }
-        if (authPass == null) {
-            Optional<CredentialsDialog.Credentials> creds = CredentialsDialog.show(
-                    tr("dialog.credentials.instcmd"), authUser != null ? authUser : "");
-            if (creds.isEmpty() || creds.get().user().isEmpty()) {
-                return;
-            }
-            authUser = creds.get().user();
-            authPass = creds.get().password();
-        }
-        poll.runInstCmd(ups, authUser, authPass, command, (ok, message) -> {
-            if (ok) {
-                notifyUser("Nux", tr("alert.commandSent", command, ups), false);
-            } else {
-                authPass = null; // could be bad credentials; re-prompt next time
-                Alert error = new Alert(Alert.AlertType.ERROR);
-                error.setTitle(tr("dialog.commandFailed.title"));
-                error.setHeaderText(tr("dialog.commandFailed.header", command));
-                error.setContentText(friendlyCommandError(message));
-                error.show();
-            }
+    private void applySettings(java.util.function.UnaryOperator<Config> edit) {
+        Config before = config();
+        long now = Instant.now().getEpochSecond();
+        configHolder.update(c -> {
+            Config edited = edit.apply(c);
+            return edited.withAdvanced(edited.advanced().armSelfTest(c.advanced(), now));
         });
-    }
-
-    private static String friendlyCommandError(String message) {
-        return switch (message) {
-            case "ACCESS-DENIED" -> tr("error.accessDenied");
-            case "USERNAME-REQUIRED", "PASSWORD-REQUIRED" -> tr("error.authRequired");
-            case "CMD-NOT-SUPPORTED" -> tr("error.notSupported");
-            default -> message;
-        };
+        history.setRetentionDays(config().advanced().historyDays());
+        connection.settingsSaved(before);
+        tray.settingsSaved(before);
     }
 
     // --- Profiles -------------------------------------------------------------
 
     private void rebuildProfilesMenu() {
         profilesButton.getItems().clear();
-        for (Profile profile : config.profiles()) {
+        for (Profile profile : config().profiles()) {
             MenuItem item = new MenuItem(profileLabel(profile));
-            item.setOnAction(e -> connectProfile(profile));
+            item.setOnAction(e -> connection.connectProfile(profile));
             profilesButton.getItems().add(item);
         }
-        if (!config.profiles().isEmpty()) {
+        if (!config().profiles().isEmpty()) {
             profilesButton.getItems().add(new SeparatorMenuItem());
         }
         MenuItem save = new MenuItem(tr("dialog.saveCurrentAs"));
         save.setOnAction(e -> saveCurrentAsProfile());
         profilesButton.getItems().add(save);
-        if (!config.profiles().isEmpty()) {
+        if (!config().profiles().isEmpty()) {
             Menu delete = new Menu(tr("dialog.deleteProfile"));
-            for (Profile profile : config.profiles()) {
+            for (Profile profile : config().profiles()) {
                 MenuItem item = new MenuItem(profile.name());
                 item.setOnAction(e -> {
-                    saveConfig(config.withProfileRemoved(profile.name()));
+                    configHolder.update(c -> c.withProfileRemoved(profile.name()));
                     rebuildProfilesMenu();
                     refreshProfileCommands();
                 });
@@ -854,23 +684,9 @@ public final class App extends Application {
         return p.tls() ? label + " 🔒" : label;
     }
 
-    private void connectProfile(Profile profile) {
-        switchingUps = true;
-        try {
-            upsCombo.getItems().clear(); // the new server announces its own UPS list on connect
-            upsCombo.setValue(null);
-        } finally {
-            switchingUps = false;
-        }
-        saveConfig(config.withLast(profile.host(), profile.port(), profile.ups(), profile.tls()));
-        refreshConnLabel();
-        running = true;
-        connectButton.setText(tr("toolbar.disconnect"));
-        startFresh(profile.ups().isBlank() ? null : profile.ups());
-    }
-
     private void saveCurrentAsProfile() {
-        TextInputDialog dialog = new TextInputDialog(config.lastHost());
+        TextInputDialog dialog = new TextInputDialog(config().lastHost());
+        dialog.initOwner(stage);
         dialog.setTitle(tr("dialog.saveProfile.title"));
         dialog.setHeaderText(tr("dialog.saveProfile.header"));
         dialog.setContentText(tr("dialog.saveProfile.name"));
@@ -882,23 +698,15 @@ public final class App extends Application {
         if (name.isEmpty()) {
             return;
         }
-        String ups = upsCombo.getValue() != null ? upsCombo.getValue() : "";
-        Profile profile = new Profile(name, config.lastHost(), config.lastPort(), ups, config.lastTls());
-        saveConfig(config.withProfileSaved(profile));
+        String ups = connection.selectedUps() != null ? connection.selectedUps() : "";
+        Config c = config();
+        Profile profile = new Profile(name, c.lastHost(), c.lastPort(), ups, c.lastTls());
+        configHolder.update(current -> current.withProfileSaved(profile));
         rebuildProfilesMenu();
         refreshProfileCommands();
     }
 
     // --- Helpers --------------------------------------------------------------
-
-    private void saveConfig(Config updated) {
-        config = updated;
-        try {
-            ConfigStore.save(configPath, config);
-        } catch (IOException e) {
-            LOG.log(System.Logger.Level.WARNING, "Could not save config to " + configPath, e);
-        }
-    }
 
     private TableView<Map.Entry<String, String>> buildVarTable() {
         TableView<Map.Entry<String, String>> table = new TableView<>(varRows);
@@ -915,9 +723,9 @@ public final class App extends Application {
         return table;
     }
 
-    /** The lock file naming the running instance's port. */
-    private static Path instanceLockFile() {
-        return ConfigStore.DEFAULT_PATH.getParent().resolve("instance.port");
+    /** Where the single-instance lock and port files live. */
+    private static Path instanceDir() {
+        return ConfigStore.DEFAULT_PATH.getParent();
     }
 
     public static void main(String[] args) {
@@ -925,16 +733,23 @@ public final class App extends Application {
 
         // The catalogue must be loaded here, not in start(): field initialisers call tr()
         // and they run when JavaFX constructs the Application, before start() is entered.
-        // Locale.setDefault makes JavaFX's own dialog buttons (OK/Cancel) match.
-        String language = Messages.resolve(
-                startup.advanced().uiLanguage(), Messages.available(), Locale.getDefault().getLanguage());
+        // Locale.setDefault makes JavaFX's own dialog buttons (OK/Cancel) match; it keeps
+        // the system region when the language agrees, so number formats stay the user's.
+        Locale system = Locale.getDefault();
+        String language =
+                Messages.resolve(startup.advanced().uiLanguage(), Messages.available(), system.getLanguage());
         Messages.init(language);
-        Locale.setDefault(Locale.forLanguageTag(language));
+        Locale.setDefault(Messages.uiLocale(language, system));
 
-        // If Nux is already running, raise its window and stop before the toolkit starts.
-        if (startup.advanced().singleInstance()
-                && SingleInstance.signalExisting(instanceLockFile(), SingleInstance.HANDSHAKE_TIMEOUT_MS)) {
-            System.exit(0);
+        // If Nux is already running, raise its window and stop before the toolkit starts;
+        // otherwise claim the lock now, so a second quick launch can't also get through.
+        // Failure to claim is not fatal: run regardless rather than leave the user nothing.
+        if (startup.advanced().singleInstance()) {
+            switch (SingleInstance.claim(instanceDir(), SingleInstance.HANDSHAKE_TIMEOUT_MS)) {
+                case SingleInstance.Launch.AlreadyRunning _ -> System.exit(0);
+                case SingleInstance.Launch.Primary primary -> singleInstance = primary.instance();
+                case SingleInstance.Launch.Unguarded _ -> {}
+            }
         }
         launchApp(args);
     }

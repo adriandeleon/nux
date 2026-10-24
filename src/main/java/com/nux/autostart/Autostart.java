@@ -1,5 +1,7 @@
 package com.nux.autostart;
 
+import static com.nux.i18n.Messages.tr;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -41,9 +43,9 @@ public final class Autostart {
     /** Why the toggle is unavailable, for the settings UI to explain itself. */
     public static String unavailableReason() {
         if (launcherPath().isEmpty()) {
-            return "Available only in an installed build (not when running from source).";
+            return tr("autostart.sourceRun");
         }
-        return "Not supported on this desktop.";
+        return tr("autostart.unsupported");
     }
 
     public static boolean isEnabled() {
@@ -65,18 +67,13 @@ public final class Autostart {
             return switch (os()) {
                 case LINUX -> writeOrDelete(
                         linuxEntry(), enabled, AutostartSpec.linuxDesktopEntry(exec.get(), minimized));
-                case MAC -> {
-                    boolean ok = writeOrDelete(
-                            macEntry(), enabled, AutostartSpec.macLaunchAgent(exec.get(), minimized));
-                    // Best-effort: the agent is picked up at next login regardless, but
-                    // loading it now makes the toggle take effect without a logout.
-                    run(List.of("launchctl", enabled ? "load" : "unload", macEntry().toString()));
-                    yield ok;
-                }
-                case WINDOWS -> run(enabled
-                                ? AutostartSpec.windowsAddArgv(exec.get(), minimized)
-                                : AutostartSpec.windowsRemoveArgv())
-                        == 0;
+                // No launchctl: RunAtLoad would start a second Nux right now, and the
+                // agent is read at the next login anyway — which is the whole point.
+                case MAC -> writeOrDelete(
+                        macEntry(), enabled, AutostartSpec.macLaunchAgent(exec.get(), minimized));
+                case WINDOWS -> enabled
+                        ? importRegFile(AutostartSpec.windowsRunRegFile(exec.get(), minimized))
+                        : run(AutostartSpec.windowsRemoveArgv()) == 0;
                 case OTHER -> false;
             };
         } catch (IOException e) {
@@ -93,6 +90,20 @@ public final class Autostart {
             Files.deleteIfExists(file);
         }
         return true;
+    }
+
+    /**
+     * Writes the .reg content to a temp file and {@code reg import}s it. UTF-16LE with a
+     * BOM is what regedit exports and what reg.exe reads unambiguously.
+     */
+    private static boolean importRegFile(String content) throws IOException {
+        Path file = Files.createTempFile("nux-autostart", ".reg");
+        try {
+            Files.writeString(file, "\uFEFF" + content, StandardCharsets.UTF_16LE);
+            return run(AutostartSpec.windowsImportArgv(file.toString())) == 0;
+        } finally {
+            Files.deleteIfExists(file);
+        }
     }
 
     private static Path linuxEntry() {

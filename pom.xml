@@ -150,15 +150,15 @@
         </profile>
 
         <!-- Native packaging: mvn -Pdist package
-             Builds a jlink runtime image (all deps are real JPMS modules — no moditect needed)
-             then wraps it with jpackage. Default output is a portable APP_IMAGE under
+             jpackage links a runtime image from the staged modules (all deps are real JPMS
+             modules — no moditect needed) and wraps it. Default output is a portable APP_IMAGE under
              target/dist/; installers via -Djpackage.type=DEB|RPM|DMG|PKG|MSI|EXE. -->
         <profile>
             <id>dist</id>
             <properties>
                 <jpackage.type>APP_IMAGE</jpackage.type>
                 <!-- jpackage.appVersion is DERIVED from project.version by the antrun
-                     execution below (jpackage rejects a version containing -SNAPSHOT).
+                     execution below (jpackage accepts only a plain dotted number).
                      It is deliberately not declared here: a hardcoded default silently
                      goes stale the first time the project version changes. Passing
                      -Djpackage.appVersion=… still wins, which is what release CI does. -->
@@ -177,11 +177,11 @@
                         <version>3.1.0</version>
                         <executions>
                             <!-- Derive the jpackage app-version from project.version:
-                                 strip -SNAPSHOT, and on macOS bump a leading 0. to 1.
-                                 because jpackage refuses an app-version whose first
-                                 number is zero (it becomes CFBundleVersion). Ant
-                                 properties are immutable and Maven passes -D values in
-                                 first, so an explicit -Djpackage.appVersion always wins. -->
+                                 strip any suffix (-SNAPSHOT, -rc1), and on macOS bump a
+                                 leading 0. to 1. because jpackage refuses an app-version
+                                 whose first number is zero (it becomes CFBundleVersion).
+                                 Ant properties are immutable and Maven passes -D values
+                                 in first, so an explicit -Djpackage.appVersion always wins. -->
                             <execution>
                                 <id>derive-jpackage-version</id>
                                 <phase>initialize</phase>
@@ -195,7 +195,7 @@
                                             <string value="${project.version}"/>
                                             <filterchain>
                                                 <tokenfilter>
-                                                    <replaceregex pattern="-SNAPSHOT$" replace=""/>
+                                                    <replaceregex pattern="-.*$" replace=""/>
                                                 </tokenfilter>
                                             </filterchain>
                                         </loadresource>
@@ -237,24 +237,24 @@
                             </execution>
                         </executions>
                     </plugin>
+                    <!-- The module path jpackage links from: every runtime dependency as a
+                         modular jar. Maven resolves JavaFX to both an empty placeholder jar
+                         and the real per-OS one; the placeholders are automatic modules
+                         (javafx.*Empty) that nothing requires, so jlink never resolves them. -->
                     <plugin>
-                        <groupId>org.openjfx</groupId>
-                        <artifactId>javafx-maven-plugin</artifactId>
-                        <version>${javafx.plugin.version}</version>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-dependency-plugin</artifactId>
+                        <version>3.8.1</version>
                         <executions>
                             <execution>
-                                <id>jlink</id>
-                                <phase>package</phase>
+                                <id>stage-modules</id>
+                                <phase>prepare-package</phase>
                                 <goals>
-                                    <goal>jlink</goal>
+                                    <goal>copy-dependencies</goal>
                                 </goals>
                                 <configuration>
-                                    <mainClass>com.nux/com.nux.App</mainClass>
-                                    <jlinkImageName>nux-runtime</jlinkImageName>
-                                    <launcher>nux</launcher>
-                                    <noManPages>true</noManPages>
-                                    <noHeaderFiles>true</noHeaderFiles>
-                                    <stripDebug>true</stripDebug>
+                                    <includeScope>runtime</includeScope>
+                                    <outputDirectory>${project.build.directory}/modules</outputDirectory>
                                 </configuration>
                             </execution>
                         </executions>
@@ -277,11 +277,45 @@
                                     <!-- Becomes Comment= in the Linux .desktop entry. -->
                                     <description>NUT (Network UPS Tools) client</description>
                                     <type>${jpackage.type}</type>
-                                    <runtimeImage>${project.build.directory}/nux-runtime</runtimeImage>
+                                    <!-- jpackage runs jlink itself (rather than javafx:jlink) because
+                                         that plugin can't add a module nothing `requires` or pass
+                                         jlink plugin options. jdk.localedata is only ever looked up
+                                         as a service, so it must be added by name: without it a
+                                         packaged build formats numbers as English under a German
+                                         UI while a source run (full JDK) doesn't. include-locales
+                                         keeps just the bundled UI languages (each with all its
+                                         regions, so de-AT/de-CH still format correctly): ~2 MB
+                                         instead of ~25 MB of CLDR data. Keep the list in step with
+                                         Messages.LANGUAGES. -->
                                     <module>com.nux/com.nux.App</module>
+                                    <modulePaths>
+                                        <modulePath>${project.build.directory}/${project.build.finalName}.jar</modulePath>
+                                        <modulePath>${project.build.directory}/modules</modulePath>
+                                    </modulePaths>
+                                    <addModules>
+                                        <addModule>jdk.localedata</addModule>
+                                    </addModules>
+                                    <jLinkOptions>
+                                        <jLinkOption>--strip-debug</jLinkOption>
+                                        <jLinkOption>--no-man-pages</jLinkOption>
+                                        <jLinkOption>--no-header-files</jLinkOption>
+                                        <jLinkOption>--include-locales=en,es,fr,de,pt,it</jLinkOption>
+                                    </jLinkOptions>
                                     <destination>${project.build.directory}/dist</destination>
                                     <icon>${jpackage.icon}</icon>
                                     <resourceDir>${jpackage.resourceDir}</resourceDir>
+                                    <!-- Windows (ignored elsewhere). Without win-menu/win-shortcut
+                                         the MSI installs with no Start-menu entry at all. -->
+                                    <winMenu>true</winMenu>
+                                    <winMenuGroup>Nux</winMenuGroup>
+                                    <winShortcut>true</winShortcut>
+                                    <!-- The MSI UpgradeCode: an install with the same code replaces
+                                         the old version instead of sitting beside it. NEVER CHANGE
+                                         IT — a new value orphans every existing install. It is the
+                                         value jpackage derives by default (name-based UUID of
+                                         "UpgradeCode/<vendor>/<name>"), pinned so that renaming the
+                                         vendor or app can't silently change it. -->
+                                    <winUpgradeUuid>76de9bd5-010c-3a83-84fa-6223cd5b3a32</winUpgradeUuid>
                                 </configuration>
                             </execution>
                         </executions>

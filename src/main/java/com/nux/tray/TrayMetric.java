@@ -1,21 +1,18 @@
 package com.nux.tray;
 
+import static com.nux.i18n.Messages.tr;
+
 import java.util.Locale;
 
 /** Which number the tray icon shows. Persisted by its lowercase {@link #key()}. */
 public enum TrayMetric {
-    BATTERY("Battery %"),
-    LOAD("Load %"),
-    RUNTIME("Runtime minutes");
+    BATTERY,
+    LOAD,
+    RUNTIME;
 
-    private final String label;
-
-    TrayMetric(String label) {
-        this.label = label;
-    }
-
+    /** The display name, from the {@code tray.metric.<key>} catalogue entry. */
     public String label() {
-        return label;
+        return tr("tray.metric." + key());
     }
 
     public String key() {

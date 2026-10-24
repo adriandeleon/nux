@@ -28,6 +28,11 @@ public final class DiscoveryWindow {
     private DiscoveryWindow() {}
 
     public static void show(Window owner, BiConsumer<String, Integer> onPick) {
+        // One per owner: Settings' finder fills its fields, the main window's connects.
+        String key = "discovery:" + System.identityHashCode(owner);
+        if (Windows.raise(key)) {
+            return;
+        }
         DiscoveryService discovery = new DiscoveryService();
         ListView<DiscoveryService.Found> list = new ListView<>();
         list.setCellFactory(v -> new ListCell<>() {
@@ -95,7 +100,7 @@ public final class DiscoveryWindow {
 
         VBox root = new VBox(
                 10,
-                new Label(tr("discovery.heading", NutClient.DEFAULT_PORT)),
+                new Label(tr("discovery.heading", String.valueOf(NutClient.DEFAULT_PORT))),
                 list,
                 bar);
         root.setPadding(new Insets(14));
@@ -105,6 +110,7 @@ public final class DiscoveryWindow {
         Scene scene = new Scene(root, 520, 380);
         scene.getStylesheets().add(DiscoveryWindow.class.getResource("/com/nux/nux.css").toExternalForm());
         stage.setScene(scene);
+        Windows.track(key, stage);
         stage.show();
         scan.fire();
     }

@@ -27,11 +27,11 @@ public final class ConfigStore {
 
     public static Config parse(Properties p) {
         String lastHost = p.getProperty("lastHost", "localhost");
-        int lastPort = parseInt(p.getProperty("lastPort"), NutClient.DEFAULT_PORT);
+        int lastPort = parsePort(p.getProperty("lastPort"));
         String lastUps = p.getProperty("lastUps", "");
         boolean lastTls = Boolean.parseBoolean(p.getProperty("lastTls", "false"));
         boolean tlsTrustAll = Boolean.parseBoolean(p.getProperty("tlsTrustAll", "false"));
-        boolean autoConnect = Boolean.parseBoolean(p.getProperty("autoConnect", "false"));
+        boolean autoConnect = Boolean.parseBoolean(p.getProperty("autoConnect", "true"));
         boolean tray = Boolean.parseBoolean(p.getProperty("tray", "true"));
         boolean closeToTray = Boolean.parseBoolean(p.getProperty("closeToTray", "true"));
         String trayMetric = p.getProperty("trayMetric", "battery");
@@ -48,21 +48,22 @@ public final class ConfigStore {
             if (host == null || host.isBlank()) {
                 continue; // a listed name with no host is a half-written entry; skip it
             }
-            int port = parseInt(p.getProperty(prefix + "port"), NutClient.DEFAULT_PORT);
+            int port = parsePort(p.getProperty(prefix + "port"));
             String ups = p.getProperty(prefix + "ups", "");
             boolean tls = Boolean.parseBoolean(p.getProperty(prefix + "tls", "false"));
             profiles.add(new Profile(name, host, port, ups, tls));
         }
         Advanced d = Advanced.defaults();
         Advanced advanced = new Advanced(
-                parseInt(p.getProperty("adv.historyDays"), d.historyDays()),
+                Math.max(1, parseInt(p.getProperty("adv.historyDays"), d.historyDays())),
                 parseDouble(p.getProperty("adv.nominalWatts"), d.nominalWatts()),
                 parseDouble(p.getProperty("adv.tariffPerKwh"), d.tariffPerKwh()),
                 p.getProperty("adv.currency", d.currency()),
                 Boolean.parseBoolean(p.getProperty("adv.selfTestEnabled", "false")),
-                parseInt(p.getProperty("adv.selfTestIntervalDays"), d.selfTestIntervalDays()),
+                Math.max(1, parseInt(p.getProperty("adv.selfTestIntervalDays"), d.selfTestIntervalDays())),
                 p.getProperty("adv.selfTestTime", d.selfTestTime()),
                 parseLong(p.getProperty("adv.selfTestLastRun"), 0),
+                parseLong(p.getProperty("adv.selfTestArmed"), 0),
                 p.getProperty("adv.selfTestCommand", d.selfTestCommand()),
                 Boolean.parseBoolean(p.getProperty("adv.singleInstance", "true")),
                 p.getProperty("adv.uiLanguage", d.uiLanguage()),
@@ -97,6 +98,7 @@ public final class ConfigStore {
         p.setProperty("adv.selfTestIntervalDays", Integer.toString(a.selfTestIntervalDays()));
         p.setProperty("adv.selfTestTime", a.selfTestTime());
         p.setProperty("adv.selfTestLastRun", Long.toString(a.selfTestLastRun()));
+        p.setProperty("adv.selfTestArmed", Long.toString(a.selfTestArmed()));
         p.setProperty("adv.selfTestCommand", a.selfTestCommand());
         p.setProperty("adv.singleInstance", Boolean.toString(a.singleInstance()));
         p.setProperty("adv.uiLanguage", a.uiLanguage());
@@ -141,6 +143,15 @@ public final class ConfigStore {
         } catch (IOException e) {
             Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING); // filesystem without atomic move
         }
+    }
+
+    /**
+     * A TCP port, or the NUT default when missing or out of range — a hand-edited 99999
+     * otherwise reaches InetSocketAddress, which throws on every poll.
+     */
+    static int parsePort(String value) {
+        int port = parseInt(value, NutClient.DEFAULT_PORT);
+        return port >= 1 && port <= 65535 ? port : NutClient.DEFAULT_PORT;
     }
 
     private static int parseInt(String value, int fallback) {

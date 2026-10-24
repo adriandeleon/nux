@@ -16,13 +16,41 @@ import com.nux.protocol.TlsMode;
 class ConfigStoreTest {
 
     @Test
+    void enablingTheSelfTestArmsItsSchedule() {
+        Advanced off = Advanced.defaults();
+        Advanced on = new Advanced(30, 0, 0, "$", true, 30, "03:00", 0, 0, Advanced.DEFAULT_TEST_COMMAND, true, "", true, 0, "");
+        assertEquals(1000L, on.armSelfTest(off, 1000).selfTestArmed());
+    }
+
+    @Test
+    void anArmedScheduleKeepsItsAnchorUnlessItsTimeChanges() {
+        Advanced armed = new Advanced(30, 0, 0, "$", true, 30, "03:00", 0, 500, Advanced.DEFAULT_TEST_COMMAND, true, "", true, 0, "");
+        // Saving Settings again (or changing the interval) must not push the first run back.
+        assertEquals(500L, armed.armSelfTest(armed, 1000).selfTestArmed());
+        Advanced newTime = new Advanced(30, 0, 0, "$", true, 30, "04:00", 0, 500, Advanced.DEFAULT_TEST_COMMAND, true, "", true, 0, "");
+        assertEquals(1000L, newTime.armSelfTest(armed, 1000).selfTestArmed());
+    }
+
+    @Test
+    void anEnabledScheduleFromBeforeArmingExistedIsArmedOnSight() {
+        Advanced legacy = new Advanced(30, 0, 0, "$", true, 30, "03:00", 0, 0, Advanced.DEFAULT_TEST_COMMAND, true, "", true, 0, "");
+        assertEquals(1000L, legacy.armSelfTest(legacy, 1000).selfTestArmed());
+    }
+
+    @Test
+    void aDisabledScheduleIsNeverArmed() {
+        Advanced off = Advanced.defaults();
+        assertEquals(0L, off.armSelfTest(off, 1000).selfTestArmed());
+    }
+
+    @Test
     void roundTripsThroughProperties() {
         Config original = Config.defaults()
                 .withLast("nas.local", 3493, "rack", true)
                 .withAutoConnect(true)
                 .withTrayMetric("runtime")
                 .withAdvanced(
-                        new Advanced(14, 900, 0.28, "€", true, 7, "02:30", 1785700000L, "test.battery.start.deep", false, "es", false, 1785700000000L, "0.3.0"))
+                        new Advanced(14, 900, 0.28, "€", true, 7, "02:30", 1785700000L, 1785600000L, "test.battery.start.deep", false, "es", false, 1785700000000L, "0.3.0"))
                 .withProfileSaved(new Profile("desk", "localhost", 3493, "cyberpower", false))
                 .withProfileSaved(new Profile("nas", "nas.local", 3494, "", true));
         Config parsed = ConfigStore.parse(ConfigStore.format(original));
@@ -50,8 +78,26 @@ class ConfigStoreTest {
         assertEquals(3493, c.lastPort());
         assertFalse(c.lastTls());
         assertFalse(c.tlsTrustAll());
-        assertFalse(c.autoConnect());
+        // On by default: the Settings checkbox is now its only writer, so a fresh install
+        // has to start from "reconnect on launch" rather than earning it on first connect.
+        assertTrue(c.autoConnect());
         assertEquals(List.of(), c.profiles());
+    }
+
+    @Test
+    void parseClampsHandEditedNumbersIntoRange() {
+        Properties p = new Properties();
+        p.setProperty("lastPort", "99999");
+        p.setProperty("profiles", "x");
+        p.setProperty("profile.x.host", "h");
+        p.setProperty("profile.x.port", "0");
+        p.setProperty("adv.historyDays", "0"); // would make prune delete everything
+        p.setProperty("adv.selfTestIntervalDays", "-3");
+        Config c = ConfigStore.parse(p);
+        assertEquals(3493, c.lastPort());
+        assertEquals(3493, c.profiles().getFirst().port());
+        assertEquals(1, c.advanced().historyDays());
+        assertEquals(1, c.advanced().selfTestIntervalDays());
     }
 
     @Test

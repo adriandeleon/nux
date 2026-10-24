@@ -10,6 +10,8 @@ import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.scene.text.TextAlignment;
 
+import com.nux.protocol.UpsStatus.Severity;
+
 /**
  * A minimal 270° arc gauge drawn on a Canvas: fraction 0..1, a big value text, a title.
  * Color moves green → amber → red by thresholds; {@code highIsBad} inverts them (for load).
@@ -32,19 +34,27 @@ public final class ArcGauge extends StackPane {
         this.title = title;
         this.highIsBad = highIsBad;
         getChildren().add(canvas);
+        setAccessibleRole(javafx.scene.AccessibleRole.TEXT);
         clear();
     }
 
     /** No data: gray track and a dash. */
     public void clear() {
-        draw(Double.NaN, "—");
+        draw(Double.NaN, "—", null);
     }
 
     public void set(double fraction, String valueText) {
-        draw(Math.clamp(fraction, 0, 1), valueText);
+        draw(Math.clamp(fraction, 0, 1), valueText, null);
     }
 
-    private void draw(double fraction, String valueText) {
+    /** Like {@link #set(double, String)}, but coloured by a judgement made elsewhere. */
+    public void set(double fraction, String valueText, Severity severity) {
+        draw(Math.clamp(fraction, 0, 1), valueText, severity);
+    }
+
+    private void draw(double fraction, String valueText, Severity severity) {
+        // A Canvas is invisible to screen readers; say what it shows.
+        setAccessibleText(title + ": " + valueText);
         GraphicsContext g = canvas.getGraphicsContext2D();
         g.clearRect(0, 0, SIZE, SIZE);
 
@@ -59,7 +69,7 @@ public final class ArcGauge extends StackPane {
         g.strokeArc(pad, pad, d, d, startAngle, fullExtent, ArcType.OPEN);
 
         if (!Double.isNaN(fraction)) {
-            g.setStroke(colorFor(fraction));
+            g.setStroke(severity != null ? colorFor(severity) : colorFor(fraction));
             g.strokeArc(pad, pad, d, d, startAngle, fullExtent * fraction, ArcType.OPEN);
         }
 
@@ -70,6 +80,14 @@ public final class ArcGauge extends StackPane {
         g.setFill(MUTED);
         g.setFont(Font.font("System", FontWeight.NORMAL, 13));
         g.fillText(title, SIZE / 2, SIZE / 2 + 30);
+    }
+
+    private static Color colorFor(Severity severity) {
+        return switch (severity) {
+            case OK -> OK;
+            case WARNING -> WARN;
+            case CRITICAL -> BAD;
+        };
     }
 
     private Color colorFor(double fraction) {

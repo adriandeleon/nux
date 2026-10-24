@@ -78,7 +78,8 @@ and Italian**:
 | 🇩🇪 Deutsch | 🇵🇹 Português | 🇮🇹 Italiano |
 
 Nux follows your system language when it is one of these, and falls back to
-English otherwise. To choose explicitly, use **Settings → Tray → Language**;
+English otherwise. To choose explicitly, use **Settings → General → Language**
+(*System default* goes back to following the system);
 the change applies on the next launch, because the catalogue is loaded once at
 startup. `Locale.setDefault` follows the same choice, so JavaFX's own OK/Cancel
 buttons match rather than staying English.

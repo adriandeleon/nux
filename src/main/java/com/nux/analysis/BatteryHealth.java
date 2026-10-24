@@ -1,5 +1,7 @@
 package com.nux.analysis;
 
+import static com.nux.i18n.Messages.tr;
+
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
@@ -109,8 +111,8 @@ public final class BatteryHealth {
         long years = months / 12;
         long rest = months % 12;
         if (years == 0) {
-            return rest + " mo";
+            return tr("battery.months", rest);
         }
-        return rest == 0 ? years + " y" : years + " y " + rest + " mo";
+        return rest == 0 ? tr("battery.years", years) : tr("battery.yearsMonths", years, rest);
     }
 }

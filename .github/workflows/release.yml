@@ -9,6 +9,9 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
@@ -48,15 +51,23 @@ jobs:
         id: version
         shell: bash
         run: |
+          POM_VERSION=$(grep -m1 "<version>" pom.xml | sed -E 's/.*<version>([^<]+)<\/version>.*/\1/')
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             VERSION="${GITHUB_REF_NAME#v}"
+            # The pom is the only place a version lives (About window, update check);
+            # a tag that disagrees would publish installers that misreport themselves.
+            if [[ "$VERSION" != "$POM_VERSION" ]]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match the pom version $POM_VERSION"
+              exit 1
+            fi
           else
-            VERSION=$(grep -m1 "<version>" pom.xml | sed -E 's/.*<version>([^<]+)<\/version>.*/\1/')
-            VERSION="${VERSION%-SNAPSHOT}"
+            VERSION="${POM_VERSION%-SNAPSHOT}"
           fi
+          # jpackage takes only a plain dotted number: drop a -rc1/-beta suffix (it
+          # still names the artifacts and the release).
+          APPVER="${VERSION%%-*}"
           # jpackage on macOS rejects an app version whose first number is 0
           # (CFBundleVersion rule); bump the bundle-metadata version only.
-          APPVER="$VERSION"
           if [[ "$RUNNER_OS" == "macOS" && "$APPVER" == 0.* ]]; then
             APPVER="1${APPVER#0}"
           fi
@@ -66,14 +77,14 @@ jobs:
 
       - name: Test
         shell: bash
-        run: mvn --batch-mode test
+        run: ./mvnw --batch-mode test
 
       - name: Package
         shell: bash
         run: |
           for type in ${{ matrix.types }}; do
             echo "== jpackage type $type"
-            mvn --batch-mode -Pdist package -DskipTests \
+            ./mvnw --batch-mode -Pdist package -DskipTests \
               -Djpackage.type="$type" \
               -Djpackage.appVersion="${{ steps.version.outputs.appver }}"
           done
@@ -118,3 +129,6 @@ jobs:
           files: artifacts/*
           generate_release_notes: true
           draft: false
+          # A -rc/-beta tag is a pre-release. The in-app update check refuses
+          # pre-releases, so this flag is what keeps users from being offered one.
+          prerelease: ${{ contains(github.ref_name, '-') }}

@@ -1,5 +1,7 @@
 package com.nux.ui;
 
+import static com.nux.i18n.Messages.tr;
+
 import java.util.List;
 import java.util.function.Supplier;
 
@@ -47,7 +49,7 @@ public final class CommandPalette {
         List<Command> all = commands.get();
 
         TextField input = new TextField();
-        input.setPromptText("Type a command…");
+        input.setPromptText(tr("palette.prompt"));
         ListView<Command> list = new ListView<>();
         list.setCellFactory(v -> new CommandCell());
         list.setFocusTraversable(false);

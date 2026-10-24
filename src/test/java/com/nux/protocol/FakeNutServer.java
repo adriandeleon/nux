@@ -30,6 +30,7 @@ public final class FakeNutServer implements AutoCloseable {
     private final Map<String, List<String>> scripted = Collections.synchronizedMap(new LinkedHashMap<>());
     private final Thread acceptor;
     private volatile boolean closed;
+    private volatile boolean hangingUp;
 
     public FakeNutServer() throws IOException {
         server = new ServerSocket(0, 4, InetAddress.getLoopbackAddress());
@@ -41,6 +42,22 @@ public final class FakeNutServer implements AutoCloseable {
     /** Scripts a reply. Repeat calls for the same request queue up, one per invocation. */
     public FakeNutServer on(String request, String... replyLines) {
         scripted.computeIfAbsent(request, k -> new ArrayList<>()).add(String.join("\n", replyLines));
+        return this;
+    }
+
+    /**
+     * While on, every connection — the live one at its next request, and any new one — is
+     * dropped: the client sees the server vanish (and come back when switched off)
+     * without the port changing.
+     */
+    public FakeNutServer hangUp(boolean on) {
+        hangingUp = on;
+        return this;
+    }
+
+    /** Replaces whatever was scripted for {@code request}: the server "changes its mind". */
+    public FakeNutServer replace(String request, String... replyLines) {
+        scripted.put(request, new ArrayList<>(List.of(String.join("\n", replyLines))));
         return this;
     }
 
@@ -92,11 +109,17 @@ public final class FakeNutServer implements AutoCloseable {
     }
 
     private void serve(Socket socket) throws IOException {
+        if (hangingUp) {
+            return; // the try-with-resources in acceptLoop closes it
+        }
         BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
         BufferedWriter out =
                 new BufferedWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8));
         String line;
         while ((line = in.readLine()) != null) {
+            if (hangingUp) {
+                return; // drop the live connection too, mid-request, as a dying server would
+            }
             received.add(line);
             if (line.equals("LOGOUT")) {
                 write(out, "OK Goodbye");

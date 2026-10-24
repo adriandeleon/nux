@@ -5,9 +5,18 @@ on:
     branches: ["**"]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # All three desktops: the tray, autostart and single-instance code branch per OS,
+    # and the FX tests must stay headless everywhere, not just where there's no display.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -16,4 +25,11 @@ jobs:
           java-version: "25"
           cache: maven
       - name: Test
-        run: mvn --batch-mode test
+        # Headless JavaFX comes from surefire's glass.platform=Headless (pom.xml), which
+        # applies on every OS. Clearing DISPLAY/WAYLAND_DISPLAY only matters on Linux,
+        # where it proves the run doesn't quietly lean on a display.
+        shell: bash
+        env:
+          DISPLAY: ""
+          WAYLAND_DISPLAY: ""
+        run: ./mvnw --batch-mode test
