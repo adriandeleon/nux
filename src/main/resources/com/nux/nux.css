@@ -25,6 +25,12 @@
     -fx-font-weight: bold;
 }
 
+/* A value that is really advice ("set a price in Settings"), not a reading. */
+.detail-hint {
+    -fx-font-weight: normal;
+    -fx-text-fill: -color-fg-muted;
+}
+
 /* Settings: why Save is disabled */
 .settings-problem {
     -fx-text-fill: -color-danger-fg;

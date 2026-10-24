@@ -47,6 +47,7 @@ public final class Dashboard extends VBox {
     private final Label serial = detailValue();
     private final Label batteryAge = detailValue();
     private final Label power = detailValue();
+    private final Label cost = detailValue();
     private final HBox overview = new HBox(8);
 
     public Dashboard() {
@@ -75,6 +76,8 @@ public final class Dashboard extends VBox {
         details.addRow(0, detailName(tr("dashboard.input")), inputVoltage, detailName(tr("dashboard.output")), outputVoltage);
         details.addRow(1, detailName(tr("dashboard.batteryLabel")), batteryVoltage, detailName(tr("dashboard.serial")), serial);
         details.addRow(2, detailName(tr("dashboard.batteryAge")), batteryAge, detailName(tr("dashboard.power")), power);
+        details.add(detailName(tr("dashboard.cost")), 0, 3);
+        details.add(cost, 1, 3, 3, 1);
 
         overview.setAlignment(Pos.CENTER);
         overview.setVisible(false);
@@ -94,6 +97,15 @@ public final class Dashboard extends VBox {
 
     public void setPower(String text) {
         power.setText(text);
+    }
+
+    /** What the current draw costs per hour/day/week/month, or a hint when no price is set. */
+    public void setCost(String text, boolean hint) {
+        cost.setText(text);
+        cost.getStyleClass().remove("detail-hint");
+        if (hint) {
+            cost.getStyleClass().add("detail-hint");
+        }
     }
 
     /** The multi-UPS strip: one clickable card per UPS, hidden when the server has only one. */
@@ -191,6 +203,7 @@ public final class Dashboard extends VBox {
         serial.setText("—");
         setBatteryAge("—", false);
         power.setText("—");
+        setCost("—", false);
         setOverview(null, null, name -> {});
     }
 

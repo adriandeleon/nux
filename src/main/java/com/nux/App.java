@@ -74,6 +74,7 @@ import com.nux.ui.Dashboard;
 import com.nux.ui.DiscoveryWindow;
 import com.nux.ui.EventsWindow;
 import com.nux.ui.HistoryWindow;
+import com.nux.ui.Money;
 import com.nux.ui.Screenshot;
 import com.nux.ui.SettingsWindow;
 import com.nux.ui.VariablesWindow;
@@ -539,9 +540,26 @@ public final class App extends Application {
             ageText = tr("dashboard.aging", ageText);
         }
         dashboard.setBatteryAge(ageText, health == BatteryHealth.Status.AGING || health == BatteryHealth.Status.REPLACE);
-        dashboard.setPower(EnergyEstimate.watts(snapshot, config().advanced().nominalWatts())
-                .map(w -> String.format("%.0f W", w))
-                .orElse("—"));
+        Optional<Double> watts = EnergyEstimate.watts(snapshot, config().advanced().nominalWatts());
+        dashboard.setPower(watts.map(w -> String.format("%.0f W", w)).orElse("—"));
+        Advanced adv = config().advanced();
+        if (watts.isEmpty()) {
+            dashboard.setCost("—", false);
+        } else if (adv.tariffPerKwh() <= 0) {
+            dashboard.setCost(tr("dashboard.costUnset"), true);
+        } else {
+            // The steady-state cost of drawing what the UPS reports right now.
+            double w = watts.get();
+            double price = adv.tariffPerKwh();
+            dashboard.setCost(
+                    tr(
+                            "dashboard.costRate",
+                            Money.format(adv.currency(), EnergyEstimate.costPer(EnergyEstimate.Period.HOUR, w, price)),
+                            Money.format(adv.currency(), EnergyEstimate.costPer(EnergyEstimate.Period.DAY, w, price)),
+                            Money.format(adv.currency(), EnergyEstimate.costPer(EnergyEstimate.Period.WEEK, w, price)),
+                            Money.format(adv.currency(), EnergyEstimate.costPer(EnergyEstimate.Period.MONTH, w, price))),
+                    false);
+        }
     }
 
     // --- Feature windows ------------------------------------------------------

@@ -17,6 +17,7 @@ import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.scene.text.TextAlignment;
 
+import com.nux.analysis.Decimate;
 import com.nux.analysis.EnergyEstimate;
 import com.nux.protocol.UpsStatus;
 import com.nux.store.HistorySample;
@@ -175,7 +176,10 @@ public final class TimeChart extends Pane {
         double prevX = 0;
         double prevY = 0;
         long prevEpoch = Long.MIN_VALUE;
-        for (HistorySample s : samples) {
+        // ~2 points per pixel column, keeping each column's min and max: a 30-day range is
+        // ~43k samples, far more than the pixels to draw them in. Shading and the readout
+        // still use every sample.
+        for (HistorySample s : Decimate.minMax(samples, HistorySample::epochSecond, value, (int) plotW)) {
             double v = value.applyAsDouble(s);
             // A long silence means Nux wasn't running: break the line rather than draw a
             // confident straight segment through hours nobody measured.
