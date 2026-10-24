@@ -62,7 +62,8 @@ derives it from the module main class, *not* the app name — verified with
 - `com.nux.config` — pure `Config`/`Profile` records with withers +
   `ConfigStore` (properties file at `~/.nux/config.properties`, atomic
   temp+move writes, defaults on missing/malformed — never throws on load).
-  The analytics/automation settings live in a nested `Advanced` record
+  `NotifyRule` (ALL/CRITICAL/NONE per `host:port/ups`, only exceptions
+  stored). The analytics/automation settings live in a nested `Advanced` record
   (persisted under an `adv.` prefix) so `Config`'s component list stays
   readable; add new settings there, not as more top-level components.
 - `com.nux.store` — persistence beyond preferences: `HistoryStore`
@@ -75,7 +76,8 @@ derives it from the module main class, *not* the app name — verified with
   follows `setRetentionDays` live; server-supplied names go through `safeName`
   → `[a-z0-9_-]`, dots included) and `EventLog` (`~/.nux/events.csv`, capped,
   trimmed on each session's first append so short sessions can't grow it
-  forever; newest first for the UI). Both write on their own daemon thread;
+  forever; newest first for the UI), plus `HistoryExport` (CSV with a header and
+  local time). Both stores write on their own daemon thread;
   `load` is synchronous and belongs off the FX thread.
 - `com.nux.analysis` — pure derivations over a snapshot/history:
   `BatteryHealth` (firmware date formats, age, aging/replace thresholds, and
@@ -86,7 +88,12 @@ derives it from the module main class, *not* the app name — verified with
   "now" injected so the policy is testable; the first run hangs off the
   persisted `selfTestArmed` instant — recomputing it from "now" each poll meant
   it never came due), and `RuntimeHealth` (runtime colour judged against the
-  UPS's own `battery.runtime.low`, not the gauge's 60-minute arc).
+  UPS's own `battery.runtime.low`, not the gauge's 60-minute arc),
+  `EnergyEstimate.byPeriod`/`costPer` (kWh per hour/day/week/month — absent
+  periods mean "not running", not 0 kWh — and the cost of a draw over a
+  period), `OutageReport` (on-battery stretches from history, flagged ongoing
+  or unclear across a recording gap) and `Decimate` (min/max per pixel column,
+  so a 30-day chart draws ~1.4k of ~43k points and keeps every spike).
 - `com.nux.service` — `PollService` (ONE daemon thread owns the `NutClient`;
   polls every 5 s, posts to the FX thread via `Platform.runLater` under a
   monotonically-increasing **generation guard** so stale results are dropped;
@@ -114,9 +121,11 @@ derives it from the module main class, *not* the app name — verified with
   (EDT-marshaled, multi-resolution images). Both render through
   `TrayIconRenderer` from the pure `TrayDisplay` (charge % text or bolt,
   severity color; value-equality lets `TrayController` skip redundant repaints).
-  The tray menu is a full `com.canonical.dbusmenu` implementation (`SniMenu` +
-  the pure `SniMenuModel`) on Linux and an AWT `PopupMenu` elsewhere; its first
-  item is a disabled live status line — deliberate, because GNOME's
+  The menu's actions are a pure `TrayMenu` value (quick actions: connect, switch
+  UPS, self-test, a Commands submenu, Quit) rendered by a full
+  `com.canonical.dbusmenu` implementation (`SniMenu` + the pure `SniMenuModel`:
+  depth-first ids, nested submenus, radio items) on Linux and an AWT
+  `PopupMenu` elsewhere; its first item is a disabled live status line — deliberate, because GNOME's
   AppIndicator extension renders SNI menus but **not** SNI tooltips.
   **Gotchas (all found against the live bus):** (1) `Properties.Get` must
   return the stored `Variant` itself, never `getValue()` — a raw
@@ -154,9 +163,16 @@ derives it from the module main class, *not* the app name — verified with
   `CommandRunner` (session credentials, confirm → log in → run → report, writable
   variables, the scheduled self-test with an injected clock; dialogs via
   `Prompts`) and `TrayController` (backend lifecycle, generation-guarded init,
-  repaint dedupe, the close-to-tray policy; JavaFX reached via `Window`). They
-  share one `ConfigHolder` (`config` package): every change is
-  `update(UnaryOperator)` + save, so nothing writes back a stale copy. `App` only
+  repaint dedupe, the tray's quick-action menu, the close-to-tray policy; JavaFX
+  reached via `Window`) and `FleetWatcher` (with `watchProfiles` on, one
+  background `PollService` per other saved profile: history, events and
+  notifications under its own rule, cards via `View`; the profile on screen is
+  skipped). `ConnectionController` also owns the on-battery clock (exact on the
+  transition, a lower bound when connected mid-outage, kept through blips) and
+  per-UPS notification rules. They share one `ConfigHolder` (`config` package):
+  every change is `update(UnaryOperator)`, applied at once and saved by a
+  coalescing background writer (flushed on quit), so nothing writes back a
+  stale copy and no save blocks the FX thread. `App` only
   builds the UI and adapts it to these interfaces (`ConnectionView`,
   `DialogPrompts`, `MainWindow`) — new behaviour belongs in a controller, not
   in `App`.
@@ -171,7 +187,11 @@ derives it from the module main class, *not* the app name — verified with
   to the front instead of stacking a copy), `CommandPalette`
   (an in-scene overlay on the root StackPane — never a Popup, so keyboard
   focus can't strand in a separate native window; Ctrl/Cmd+Shift+P).
-  AtlantaFX (PrimerDark) is the user-agent stylesheet; app styles in
+  `Theme` applies PrimerDark or PrimerLight ("system" follows
+  `Platform.Preferences`' colour scheme, live) and carries the `Palette` the
+  Canvas widgets read at draw time — CSS can't reach a Canvas — repainting via
+  weak listeners. `HistoryWindow` has Charts / Energy & cost / Outages tabs.
+  AtlantaFX is the user-agent stylesheet; app styles in
   `resources/com/nux/nux.css` use AtlantaFX `-color-*` semantic variables
   where possible. The tray metric (`TrayMetric` battery/load/runtime, config
   key `trayMetric`) is re-rendered from the last snapshot by `TrayController.refresh`
@@ -314,5 +334,6 @@ OVER, OFF, ALARM.
 
 See README and TODO.md. The tray (SNI on Linux), Windows notifications (via the
 tray icon) and release CI have all shipped, and `App`'s connection, command and
-tray state now lives in tested controllers (`com.nux.app`). Still deliberately
-open: signed installers and a light theme.
+tray state now lives in tested controllers (`com.nux.app`). The light theme,
+tray quick actions and watching several servers have shipped too. Still
+deliberately open: signed installers.

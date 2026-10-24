@@ -56,7 +56,13 @@ palette** (`Ctrl/Cmd+Shift+P`), and a **selectable tray metric**
 (battery % / load % / runtime minutes).
 
 Beyond the live view it keeps **persistent history** (charts over the last
-hour to 30 days, with kWh and cost estimates), a **persistent event log**
+hour to 30 days, exportable as CSV; **energy and cost per hour, day, week or
+month**; and an **outage report** — every on-battery stretch, how long and how
+deep), shows what the current draw **costs per hour, day, week and month**, and
+while on battery **how long it has been and how much runtime is left**. It has
+a **light theme** (following the system by default), **tray quick actions**
+(connect, switch UPS, self-test, any instant command), **per-UPS notification
+rules**, can **watch several saved servers at once**, and keeps a **persistent event log**
 (exportable as CSV), **battery age/health** tracking, an editor for the UPS's
 **settable variables** (`upsrw`), **scheduled battery self-tests**, a
 **multi-UPS overview** for servers with more than one UPS, **command
@@ -256,6 +262,11 @@ server, which is why there's deliberately no UI checkbox for it.
 - [x] Start at login, and single-instance (a second launch raises the running
       window)
 - [x] Multi-language UI: English, Spanish, French, German, Portuguese, Italian
+- [x] Cost per hour/day/week/month, energy per period, an outage report and CSV
+      export in History
+- [x] Light theme (follows the system), tray quick actions, per-UPS notification
+      rules, keyboard shortcuts for the toolbar
+- [x] Watch several saved servers at once
 - [ ] Signed and notarised installers (needs an Apple Developer ID and a
       Windows code-signing certificate)
 - [ ] Package-manager distribution (Homebrew cask, winget, Flatpak/AppImage)

@@ -8,6 +8,27 @@ All notable changes to Nux are documented here. The format follows
 
 ### Added
 
+- **Cost per hour, day, week and month** on the dashboard, from the current
+  draw and the price in Settings → Power.
+- History gains tabs: **Energy & cost** (kWh and cost per hour, day, week or
+  month, with a total) and **Outages** (every on-battery stretch: start,
+  duration, lowest charge, runtime left, low battery). The Charts tab exports
+  the shown range as CSV and draws 30 days quickly (min/max per pixel).
+- While on battery the dashboard says **how long, and how much runtime is
+  left at the current load**.
+- **Watch several servers at once**: other saved profiles are polled in the
+  background, recorded, alerted on and shown as cards; click one to switch.
+- **Per-UPS notification rules** (all events, critical only, none) from the
+  dashboard's Notify menu; the event log still records everything.
+- **Tray quick actions**: connect/disconnect, switch UPS, battery self-test and
+  every instant command, without opening the window.
+- **Light theme**, following the system's light/dark setting by default.
+- **Keyboard shortcuts** for the toolbar (Ctrl/Cmd+K connect, +U UPS, +Shift+C
+  commands, +Shift+H history, +Shift+E events, F1 about), shown in tooltips.
+- README and About say plainly that Nux doesn't shut the computer down —
+  NUT's upsmon does — with a minimal upsmon setup.
+- CI builds the DEB, DMG and MSI on every PR and on master.
+
 - History charts show where the UPS was on battery (shaded), break the line
   across stretches when Nux wasn't running, label dates on multi-day ranges,
   and read out the nearest sample under the pointer.
@@ -78,6 +99,11 @@ All notable changes to Nux are documented here. The format follows
   whole overview; it now keeps its card, shown as unknown.
 - Every UPS switch left another no-op poll task waking every 5 seconds for the
   life of the app.
+- `driver.killpower` is treated as a power-cutting command (warning, Cancel
+  default) like `load.off`.
+- Config saves no longer run on the UI thread.
+- A rising sparkline no longer draws over its scale label, and extra dashboard
+  strips can't push the window taller than the screen.
 - Saving Settings no longer rolls back anything written while the dialog was
   open (the selected UPS, a self-test's last run, the update-check throttle).
 - Changing "Close to tray" while running no longer makes closing the window
