@@ -37,6 +37,10 @@ public final class FxTestSupport {
         await(ready);
         // Windows opened and closed by tests must not shut the toolkit down.
         runOnFx(() -> Platform.setImplicitExit(false));
+        // The app's theme, as App.start sets it: without it the tests render unstyled and
+        // nux.css's -color-* lookups fail (dozens of "could not resolve" warnings).
+        runOnFx(() -> javafx.application.Application.setUserAgentStylesheet(
+                new atlantafx.base.theme.PrimerDark().getUserAgentStylesheet()));
     }
 
     /** Runs on the FX thread and waits, rethrowing whatever the action threw. */

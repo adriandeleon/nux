@@ -156,6 +156,7 @@ public final class App extends Application {
         settingsButton.setOnAction(e -> openSettings());
         Button aboutButton = new Button("?");
         aboutButton.setTooltip(new javafx.scene.control.Tooltip(tr("toolbar.about", AppInfo.NAME)));
+        aboutButton.setAccessibleText(tr("toolbar.about", AppInfo.NAME)); // "?" means nothing read aloud
         aboutButton.setOnAction(e -> openAbout());
         updateButton.getStyleClass().add("update-badge");
         updateButton.setOnAction(e -> openUpdateDownloadPage());

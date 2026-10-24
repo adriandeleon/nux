@@ -13,6 +13,7 @@ import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 
+import com.nux.analysis.RuntimeHealth;
 import com.nux.protocol.UpsSnapshot;
 import com.nux.protocol.UpsStatus;
 import com.nux.service.History;
@@ -37,8 +38,8 @@ public final class Dashboard extends VBox {
 
     private final Sparkline chargeSpark = new Sparkline(170, 36, 0.0, 100.0);
     private final Sparkline loadSpark = new Sparkline(170, 36, 0.0, 100.0);
-    private final Sparkline runtimeSpark = new Sparkline(170, 36, null, null);
-    private final Sparkline voltageSpark = new Sparkline(566, 46, null, null);
+    private final Sparkline runtimeSpark = new Sparkline(170, 36, null, null).withMinSpan(10); // minutes
+    private final Sparkline voltageSpark = new Sparkline(566, 46, null, null).withMinSpan(10); // volts
 
     private final Label inputVoltage = detailValue();
     private final Label outputVoltage = detailValue();
@@ -116,6 +117,16 @@ public final class Dashboard extends VBox {
                 card.getStyleClass().add("overview-selected");
             }
             card.setOnMouseClicked(e -> onSelect.accept(name));
+            // Reachable without a mouse: Tab to a card, Enter or Space to pick it.
+            card.setFocusTraversable(true);
+            card.setOnKeyPressed(e -> {
+                if (e.getCode() == javafx.scene.input.KeyCode.ENTER || e.getCode() == javafx.scene.input.KeyCode.SPACE) {
+                    onSelect.accept(name);
+                    e.consume();
+                }
+            });
+            card.setAccessibleRole(javafx.scene.AccessibleRole.BUTTON);
+            card.setAccessibleText(name + ": " + state.getText());
             overview.getChildren().add(card);
         });
     }
@@ -135,7 +146,11 @@ public final class Dashboard extends VBox {
         setGauge(load, s.loadPercent(), 100, "%.0f%%");
         Optional<Double> minutes = s.runtimeSeconds().map(sec -> sec / 60);
         if (minutes.isPresent()) {
-            runtime.set(minutes.get() / RUNTIME_GAUGE_CAP_MINUTES, formatMinutes(minutes.get()));
+            // Coloured by the UPS's own low-runtime threshold, not by how full the arc is.
+            runtime.set(
+                    minutes.get() / RUNTIME_GAUGE_CAP_MINUTES,
+                    formatMinutes(minutes.get()),
+                    RuntimeHealth.of(s, minutes.get() * 60));
         } else {
             runtime.clear();
         }

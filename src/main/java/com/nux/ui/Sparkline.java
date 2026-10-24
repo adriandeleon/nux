@@ -4,20 +4,26 @@ import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
+import javafx.scene.text.Font;
+import javafx.scene.text.TextAlignment;
 
 /**
  * A minimal line sparkline on a Canvas. Fixed scale when min/max are given
- * (e.g. 0–100 for percentages), else autoscaled to the data with padding.
- * NaN samples break the line into segments.
+ * (e.g. 0–100 for percentages), else autoscaled to the data with padding — but never
+ * to less than {@link #withMinSpan its minimum span}, and with the scale's bounds
+ * printed, so a 1 V wobble doesn't fill the strip like a surge. NaN samples break the
+ * line into segments.
  */
 public final class Sparkline extends StackPane {
 
     private static final Color LINE = Color.web("#58a6ff");
     private static final Color BASELINE = Color.web("#6e7781", 0.25);
+    private static final Color SCALE = Color.web("#8b949e", 0.8);
 
     private final Canvas canvas;
     private final Double fixedMin;
     private final Double fixedMax;
+    private double minSpan;
 
     public Sparkline(double width, double height, Double fixedMin, Double fixedMax) {
         this.canvas = new Canvas(width, height);
@@ -25,6 +31,12 @@ public final class Sparkline extends StackPane {
         this.fixedMax = fixedMax;
         getChildren().add(canvas);
         update(new double[0]);
+    }
+
+    /** The smallest range an autoscaled line may stretch to fill, in data units. */
+    public Sparkline withMinSpan(double span) {
+        this.minSpan = span;
+        return this;
     }
 
     public void update(double[] values) {
@@ -55,13 +67,26 @@ public final class Sparkline extends StackPane {
         if (fixedMax != null) {
             max = fixedMax;
         }
+        boolean autoscaled = fixedMin == null && fixedMax == null;
+        if (autoscaled && max - min < minSpan) {
+            double mid = (min + max) / 2;
+            min = mid - minSpan / 2;
+            max = mid + minSpan / 2;
+        }
         if (max - min < 1e-9) { // flat data: park the line mid-height instead of dividing by ~0
             min -= 1;
             max += 1;
-        } else if (fixedMin == null && fixedMax == null) {
+        } else if (autoscaled) {
             double pad = (max - min) * 0.1;
             min -= pad;
             max += pad;
+        }
+        if (autoscaled) {
+            g.setFill(SCALE);
+            g.setFont(Font.font(9));
+            g.setTextAlign(TextAlignment.RIGHT);
+            g.fillText(String.format("%.0f", max), w, 9);
+            g.fillText(String.format("%.0f", min), w, h - 3);
         }
 
         double stepX = values.length > 1 ? w / (values.length - 1) : 0;

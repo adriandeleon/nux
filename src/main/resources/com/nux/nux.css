@@ -73,6 +73,12 @@
     -fx-cursor: hand;
 }
 
+/* Keyboard focus must be visible on the clickable cards. */
+.overview-card:focused {
+    -fx-border-color: -color-accent-emphasis;
+    -fx-border-width: 2;
+}
+
 .overview-selected {
     -fx-border-color: -color-accent-emphasis;
 }

@@ -40,12 +40,12 @@ public final class EventsWindow {
             return;
         }
         TableView<UpsEvent> table = new TableView<>();
-        TableColumn<UpsEvent, String> when = column(tr("events.when"), UpsEvent::displayTime, 150);
-        when.setMinWidth(150); // "2026-10-04 08:20" must never be cut to an ellipsis
+        TableColumn<UpsEvent, String> when = column(tr("events.when"), UpsEvent::displayTime, 185);
+        when.setMinWidth(185); // "2026-10-04 08:20:15" must never be cut to an ellipsis
         // Severity as words as well as row colour, so it doesn't rest on colour alone.
         TableColumn<UpsEvent, String> severity = column(
-                tr("events.severity"), e -> e.critical() ? tr("events.critical") : tr("events.info"), 90);
-        TableColumn<UpsEvent, String> ups = column(tr("events.ups"), UpsEvent::ups, 110);
+                tr("events.severity"), e -> e.critical() ? tr("events.critical") : tr("events.info"), 80);
+        TableColumn<UpsEvent, String> ups = column(tr("events.ups"), UpsEvent::ups, 125);
         TableColumn<UpsEvent, String> title = column(tr("events.event"), UpsEvent::title, 190);
         TableColumn<UpsEvent, String> message = column(tr("events.details"), UpsEvent::message, 300);
         table.getColumns().addAll(List.of(when, severity, ups, title, message));
