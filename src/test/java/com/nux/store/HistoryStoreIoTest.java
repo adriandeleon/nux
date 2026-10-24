@@ -159,6 +159,9 @@ class HistoryStoreIoTest {
         assertTrue(store.record(SERVER, "a", sample(1000, 10, "OL")));
         // A different UPS's first sample must not be swallowed by "a"'s interval.
         assertTrue(store.record(SERVER, "b", sample(1010, 20, "OL")));
+        // Let the queued writes land before @TempDir is deleted: on Windows a directory
+        // can't be removed while the writer is still creating a file in it.
+        store.awaitWrites();
     }
 
     @Test
