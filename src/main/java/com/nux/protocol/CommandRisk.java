@@ -9,7 +9,7 @@ import java.util.Locale;
  */
 public enum CommandRisk {
     NONE(null),
-    /** Turns the output off (load.off, load.cycle, shutdown.*, and their outlet.N forms). */
+    /** Turns the output off (load.off, load.cycle, shutdown.*, driver.killpower, outlet.N forms). */
     CUTS_POWER("risk.cutsPower"),
     /** Runs the battery down on purpose (runtime calibration, deep test, simulated failure). */
     DRAINS_BATTERY("risk.drainsBattery"),
@@ -35,7 +35,8 @@ public enum CommandRisk {
         // Dotted on both ends so "outlet.1.load.off" and "load.off.delay" match by segment,
         // never by substring.
         String dotted = "." + c + ".";
-        if (dotted.contains(".load.off.") || dotted.contains(".load.cycle.") || dotted.contains(".shutdown.")) {
+        if (dotted.contains(".load.off.") || dotted.contains(".load.cycle.") || dotted.contains(".shutdown.")
+                || dotted.contains(".killpower.")) {
             return CUTS_POWER;
         }
         if (dotted.contains(".bypass.start.")) {

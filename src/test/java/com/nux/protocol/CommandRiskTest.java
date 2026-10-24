@@ -22,6 +22,7 @@ class CommandRiskTest {
         "shutdown.reboot, CUTS_POWER",
         "shutdown.reboot.graceful, CUTS_POWER",
         "LOAD.OFF, CUTS_POWER",
+        "driver.killpower, CUTS_POWER", // offered by real CyberPower units over usbhid-ups
         // running the battery down
         "calibrate.start, DRAINS_BATTERY",
         "test.battery.start.deep, DRAINS_BATTERY",
@@ -40,6 +41,7 @@ class CommandRiskTest {
         "test.battery.start.quick, NONE",
         "test.panel.start, NONE",
         "reset.input.minmax, NONE",
+        "driver.reload, NONE",
         // matched by segment, never by substring
         "loadoff.thing, NONE",
         "noshutdown.x, NONE",
