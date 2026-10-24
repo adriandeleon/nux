@@ -3,7 +3,7 @@
 A simple, powerful, multiplatform **NUT (Network UPS Tools) client** in JavaFX
 (*nux* = Latin "nut"). Pure network client speaking the NUT protocol (TCP 3493)
 directly to `upsd` — no drivers, no native code, no external tools required at
-runtime. JDK 25 + JavaFX 26 + Maven, modular (JPMS, module `com.nux`).
+runtime. JDK 25 + JavaFX 27 + Maven, modular (JPMS, module `com.nux`).
 
 ## Commands
 
@@ -113,7 +113,7 @@ derives it from the module main class, *not* the app name — verified with
   NameOwnerChanged handler) with AWT fallback; Windows/macOS → `AwtTray`
   (EDT-marshaled, multi-resolution images). Both render through
   `TrayIconRenderer` from the pure `TrayDisplay` (charge % text or bolt,
-  severity color; value-equality lets `App.pushTray` skip redundant repaints).
+  severity color; value-equality lets `TrayController` skip redundant repaints).
   The tray menu is a full `com.canonical.dbusmenu` implementation (`SniMenu` +
   the pure `SniMenuModel`) on Linux and an AWT `PopupMenu` elsewhere; its first
   item is a disabled live status line — deliberate, because GNOME's
@@ -129,7 +129,7 @@ derives it from the module main class, *not* the app name — verified with
   SNI backend to the unreadable AWT/XEmbed fallback. Backend creation runs off
   the FX thread (`nux-tray-init`, generation-guarded, always posts an outcome).
   Config keys `tray` + `closeToTray` (both default true): with a tray, window
-  close hides — `App.updateImplicitExit()` is the single place that policy is
+  close hides — `TrayController.updateImplicitExit()` is the single place that policy is
   computed, re-run after every settings change and tray outcome;
   `stop()` ends with `System.exit(0)` so leftover AWT/D-Bus non-daemon threads
   can't keep a quit JVM alive.
@@ -174,7 +174,8 @@ derives it from the module main class, *not* the app name — verified with
   AtlantaFX (PrimerDark) is the user-agent stylesheet; app styles in
   `resources/com/nux/nux.css` use AtlantaFX `-color-*` semantic variables
   where possible. The tray metric (`TrayMetric` battery/load/runtime, config
-  key `trayMetric`) recomputes from `App.lastSnapshot` on switch.
+  key `trayMetric`) is re-rendered from the last snapshot by `TrayController.refresh`
+  on switch.
 
 ## Conventions
 
@@ -193,7 +194,7 @@ derives it from the module main class, *not* the app name — verified with
   a status transition takes milliseconds.
   Anything the client sends *without* reading a reply (`LOGOUT` on close) must
   be asserted with `awaitReceived`, since the server records on its own thread.
-  (3) **Headless FX** — `FxTestSupport` boots JavaFX 26's built-in Headless
+  (3) **Headless FX** — `FxTestSupport` boots JavaFX 27's built-in Headless
   Glass platform via `Platform.startup`; **no TestFX and no Monocle are
   needed**, and the tests never drive a robot, so that platform's prototype
   input/render limits don't apply. The surefire `glass.platform=Headless`

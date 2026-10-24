@@ -57,7 +57,7 @@ but have never been exercised against real hardware or a real server configurati
 
 ## Engineering
 
-- [x] Headless-FX harness (`FxTestSupport`, JavaFX 26's built-in Headless platform, no
+- [x] Headless-FX harness (`FxTestSupport`, JavaFX 27's built-in Headless platform, no
       TestFX dependency) covering the dashboard, the command palette, and a smoke test
       that every secondary window opens.
 - [x] ~~`App` coverage~~ — its state machines now live in `com.nux.app`
