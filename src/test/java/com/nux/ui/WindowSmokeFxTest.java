@@ -81,7 +81,7 @@ class WindowSmokeFxTest {
     void historyWindowOpens(@TempDir Path dir) {
         Window owner = owner();
         assertOpensAndCloses(() ->
-                HistoryWindow.show(owner, new HistoryStore(dir, 30), "cp", com.nux.config.Advanced.defaults(), 900));
+                HistoryWindow.show(owner, new HistoryStore(dir, 30), "nas:3493", "cp", com.nux.config.Advanced.defaults(), 900));
     }
 
     @Test

@@ -77,4 +77,13 @@ class NutParserTest {
         assertFalse(NutParser.isErr("VAR cp battery.charge \"100\""));
         assertEquals("UNKNOWN", NutParser.errCode("ERR"));
     }
+
+    @Test
+    void quotedArgumentsRoundTripThroughTheTokenizer() {
+        for (String value : List.of("plain", "with space", "q\"uote", "back\\slash", "")) {
+            String quoted = NutParser.quoteIfNeeded(value);
+            assertEquals(List.of("PASSWORD", value), NutParser.tokens("PASSWORD " + quoted), quoted);
+        }
+        assertEquals("plain", NutParser.quoteIfNeeded("plain"), "a plain word goes bare, as before");
+    }
 }

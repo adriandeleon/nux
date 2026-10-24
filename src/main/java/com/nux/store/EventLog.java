@@ -46,6 +46,9 @@ public final class EventLog {
         this.file = configDir.resolve("events.csv");
         this.maxEvents = Math.max(1, maxEvents);
         this.trimInterval = Math.max(1, this.maxEvents / 10);
+        // Trim on the first append of every session: the counter resets each launch, so a
+        // log that only gains a handful of events per session would otherwise never trim.
+        this.appendsSinceTrim = trimInterval - 1;
     }
 
     public Path file() {

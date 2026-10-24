@@ -12,6 +12,7 @@ import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.cert.X509Certificate;
@@ -32,19 +33,32 @@ import javax.net.ssl.X509TrustManager;
  * A blocking NUT client: one TCP connection to upsd (default port 3493), optionally
  * upgraded to TLS via the protocol's STARTTLS command.
  *
- * <p>Not thread-safe — intended to be owned by a single polling thread. Every read is
- * bounded by the socket timeout so a hung server can never wedge the caller.
+ * <p>Not thread-safe — intended to be owned by a single polling thread. Nothing a server
+ * sends can wedge the caller or exhaust memory: each read is bounded by the socket
+ * timeout, each request by an overall deadline (a server trickling one byte just
+ * inside the timeout would otherwise hold the poll thread forever), each line by
+ * {@link #MAX_LINE_CHARS} and each list by {@link #MAX_LIST_LINES}. Discovery points
+ * this same code at every host on the subnet, so "the server" may be anything.
  */
 public final class NutClient implements Closeable {
 
     public static final int DEFAULT_PORT = 3493;
 
+    /** Far beyond any real reply line (NUT values are short); an endless line is an attack or junk. */
+    static final int MAX_LINE_CHARS = 8192;
+    /** A UPS has ~100 variables, a big PDU a few thousand; no real list comes near this. */
+    static final int MAX_LIST_LINES = 20_000;
+
     private final Socket socket;
     private final BufferedReader in;
     private final BufferedWriter out;
+    private final long requestDeadlineNanos;
+    private long deadline; // System.nanoTime() by which the current request's reply must be complete
 
     private NutClient(Socket socket) throws IOException {
         this.socket = socket;
+        // Three socket timeouts: generous for a big LIST VAR, still bounded.
+        this.requestDeadlineNanos = Math.max(1, socket.getSoTimeout()) * 3_000_000L;
         this.in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
         this.out = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8));
     }
@@ -112,6 +126,9 @@ public final class NutClient implements Closeable {
         while ((b = in.read()) != -1) {
             if (b == '\n') {
                 return buf.toString(StandardCharsets.UTF_8);
+            }
+            if (buf.size() >= MAX_LINE_CHARS) {
+                throw new IOException("Reply line too long");
             }
             buf.write(b);
         }
@@ -263,11 +280,11 @@ public final class NutClient implements Closeable {
     }
 
     public void username(String user) throws IOException {
-        expectOk("USERNAME " + user);
+        expectOk("USERNAME " + NutParser.quoteIfNeeded(user));
     }
 
     public void password(String password) throws IOException {
-        expectOk("PASSWORD " + password);
+        expectOk("PASSWORD " + NutParser.quoteIfNeeded(password));
     }
 
     /**
@@ -330,6 +347,9 @@ public final class NutClient implements Closeable {
             if (line.startsWith("END LIST")) {
                 return lines;
             }
+            if (lines.size() >= MAX_LIST_LINES) {
+                throw new IOException("Reply list too long");
+            }
             lines.add(line);
         }
     }
@@ -338,14 +358,29 @@ public final class NutClient implements Closeable {
         out.write(command);
         out.write('\n');
         out.flush();
+        deadline = System.nanoTime() + requestDeadlineNanos;
     }
 
+    /** One reply line, bounded in length and by the current request's deadline. */
     private String readLine() throws IOException {
-        String line = in.readLine();
-        if (line == null) {
-            throw new EOFException("Connection closed by server");
+        StringBuilder line = new StringBuilder();
+        while (true) {
+            if (System.nanoTime() - deadline > 0) {
+                throw new SocketTimeoutException("upsd took too long to reply");
+            }
+            int c = in.read();
+            if (c == -1) {
+                throw new EOFException("Connection closed by server");
+            }
+            if (c == '\n') {
+                int end = line.length();
+                return end > 0 && line.charAt(end - 1) == '\r' ? line.substring(0, end - 1) : line.toString();
+            }
+            if (line.length() >= MAX_LINE_CHARS) {
+                throw new IOException("Reply line too long");
+            }
+            line.append((char) c);
         }
-        return line;
     }
 
     private static void closeQuietly(Socket socket) {

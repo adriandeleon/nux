@@ -55,6 +55,20 @@ class EventLogIoTest {
     }
 
     @Test
+    void theCapHoldsAcrossManyShortSessions(@TempDir Path dir) {
+        // Each launch used to start its trim counter at zero, so a few events per session
+        // never reached the trim interval and the file grew forever.
+        for (int session = 0; session < 40; session++) {
+            EventLog log = new EventLog(dir, 50); // trims every 5 appends; 2 per session never got there
+            log.append(new UpsEvent(session, "cp", "info", "event " + session, "m"));
+            log.append(new UpsEvent(session, "cp", "info", "event " + session + "b", "m"));
+            log.awaitWrites();
+            log.shutdown();
+        }
+        assertTrue(new EventLog(dir, 50).load().size() <= 51, "the cap overshoots by at most one append");
+    }
+
+    @Test
     void exportPathIsTheFileTheUiCopies(@TempDir Path dir) {
         EventLog log = new EventLog(dir);
         log.append(new UpsEvent(1000, "cp", "info", "t", "m"));

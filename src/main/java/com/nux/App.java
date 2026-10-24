@@ -221,7 +221,7 @@ public final class App extends Application {
         if (config.autoConnect() && !config.lastHost().isBlank()) {
             connect();
         }
-        pruneHistory();
+        history.schedulePruning();
         maybeCaptureScreenshot();
         maybeCheckForUpdates();
     }
@@ -246,17 +246,6 @@ public final class App extends Application {
                     });
                     delay.play();
                 });
-    }
-
-    /** Applies the retention window once per launch, off the FX thread. */
-    private void pruneHistory() {
-        String ups = config.lastUps();
-        if (ups == null || ups.isBlank()) {
-            return;
-        }
-        Thread pruner = new Thread(() -> history.prune(ups), "nux-history-prune");
-        pruner.setDaemon(true);
-        pruner.start();
     }
 
     /** Brings the window up from the tray, another instance's request, or a minimised start. */
@@ -441,7 +430,7 @@ public final class App extends Application {
         dashboard.update(snapshot);
         varRows.setAll(snapshot.vars().entrySet());
         lastSnapshot = snapshot;
-        history.record(snapshot.ups(), HistorySample.of(snapshot));
+        history.record(serverKey(), snapshot.ups(), HistorySample.of(snapshot));
         updateAnalysis(snapshot);
 
         UpsStatus status = snapshot.status();
@@ -547,6 +536,11 @@ public final class App extends Application {
         }
     }
 
+    /** Which server a history file belongs to; UPS names repeat across servers. */
+    private String serverKey() {
+        return config.lastHost() + ":" + config.lastPort();
+    }
+
     private String upsLabel() {
         return upsCombo.getValue() != null ? upsCombo.getValue() : config.lastHost();
     }
@@ -561,7 +555,7 @@ public final class App extends Application {
         double watts = lastSnapshot != null
                 ? EnergyEstimate.nominalWatts(lastSnapshot, config.advanced().nominalWatts()).orElse(0.0)
                 : config.advanced().nominalWatts();
-        HistoryWindow.show(stage, history, ups, config.advanced(), watts);
+        HistoryWindow.show(stage, history, serverKey(), ups, config.advanced(), watts);
     }
 
     // --- update check ---------------------------------------------------------
@@ -735,6 +729,7 @@ public final class App extends Application {
         boolean connectionChanged = serverChanged || updated.lastTls() != config.lastTls();
         boolean trayToggled = updated.tray() != config.tray();
         updated = updated.withAdvanced(updated.advanced().armSelfTest(config.advanced(), Instant.now().getEpochSecond()));
+        history.setRetentionDays(updated.advanced().historyDays());
         if (serverChanged) {
             // A UPS name belongs to the server it came from; never carry it to another one.
             updated = updated.withLast(updated.lastHost(), updated.lastPort(), "", updated.lastTls());

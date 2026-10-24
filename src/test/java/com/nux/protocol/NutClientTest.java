@@ -229,4 +229,69 @@ class NutClientTest {
         // not have recorded it yet — assert with a wait rather than instantaneously.
         assertTrue(server.awaitReceived("LOGOUT", 2000));
     }
+
+    // --- A hostile or broken server must not exhaust memory or hold the caller forever.
+
+    @Test
+    void anOverlongReplyLineIsRefused() throws IOException {
+        server.on("LIST UPS", "BEGIN LIST UPS", "UPS x \"" + "A".repeat(NutClient.MAX_LINE_CHARS + 10) + "\"", "END LIST UPS");
+        try (NutClient client = connect()) {
+            IOException e = assertThrows(IOException.class, client::listUps);
+            assertTrue(e.getMessage().contains("too long"), e.getMessage());
+        }
+    }
+
+    @Test
+    void anEndlessListIsRefused() throws IOException {
+        String[] reply = new String[NutClient.MAX_LIST_LINES + 2];
+        reply[0] = "BEGIN LIST UPS";
+        for (int i = 1; i < reply.length; i++) {
+            reply[i] = "UPS u" + i + " \"x\"";
+        }
+        server.on("LIST UPS", reply); // no END LIST within the cap
+        try (NutClient client = connect()) {
+            IOException e = assertThrows(IOException.class, client::listUps);
+            assertTrue(e.getMessage().contains("too long"), e.getMessage());
+        }
+    }
+
+    @Test
+    void aServerTricklingBytesHitsTheRequestDeadline() throws Exception {
+        // One byte every 100 ms never trips a 300 ms socket timeout; only the per-request
+        // deadline (3 x timeout) can end it.
+        try (java.net.ServerSocket trickler = new java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress())) {
+            Thread feeder = new Thread(() -> {
+                try (java.net.Socket s = trickler.accept()) {
+                    s.getInputStream().read(); // wait for the request
+                    java.io.OutputStream out = s.getOutputStream();
+                    for (int i = 0; i < 200; i++) {
+                        out.write('B');
+                        out.flush();
+                        Thread.sleep(100);
+                    }
+                } catch (Exception ignored) {
+                    // the client hanging up is the point
+                }
+            });
+            feeder.setDaemon(true);
+            feeder.start();
+            long start = System.nanoTime();
+            try (NutClient client = NutClient.connect(
+                    "127.0.0.1", trickler.getLocalPort(), Duration.ofMillis(300))) {
+                assertThrows(java.net.SocketTimeoutException.class, client::listUps);
+            }
+            long millis = (System.nanoTime() - start) / 1_000_000;
+            assertTrue(millis < 5000, "gave up after " + millis + " ms");
+        }
+    }
+
+    @Test
+    void credentialsWithSpacesOrQuotesAreQuotedOnTheWire() throws IOException {
+        server.on("USERNAME nuxuser", "OK").on("PASSWORD \"pa ss\\\"w\"", "OK");
+        try (NutClient client = connect()) {
+            client.username("nuxuser");
+            client.password("pa ss\"w");
+        }
+        assertTrue(server.received().contains("PASSWORD \"pa ss\\\"w\""), server.received().toString());
+    }
 }

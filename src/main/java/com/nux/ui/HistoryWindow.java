@@ -39,7 +39,8 @@ public final class HistoryWindow {
 
     private HistoryWindow() {}
 
-    public static void show(Window owner, HistoryStore store, String ups, Advanced advanced, double nominalWatts) {
+    public static void show(
+            Window owner, HistoryStore store, String server, String ups, Advanced advanced, double nominalWatts) {
         TimeChart charge = new TimeChart("Battery charge", "%", 0.0, 100.0);
         TimeChart load = new TimeChart("Load", "%", 0.0, 100.0);
         TimeChart voltage = new TimeChart("Input voltage", "V", null, null);
@@ -60,7 +61,7 @@ public final class HistoryWindow {
             // Reading the whole history file is disk work: keep it off the FX thread.
             Thread loader = new Thread(
                     () -> {
-                        List<HistorySample> samples = store.load(ups, since);
+                        List<HistorySample> samples = store.load(server, ups, since);
                         double kwh = EnergyEstimate.kilowattHours(samples, nominalWatts);
                         Platform.runLater(() -> {
                             charge.setData(samples, HistorySample::charge);

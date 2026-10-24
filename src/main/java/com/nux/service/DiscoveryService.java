@@ -14,8 +14,11 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import javafx.application.Platform;
 
@@ -37,17 +40,34 @@ public final class DiscoveryService {
 
     public record Found(String host, int port, List<String> upsNames) {}
 
-    private volatile boolean cancelled;
+    private final Consumer<Runnable> ui;
+    private final Supplier<List<String>> targets;
+    /**
+     * The running scan's own cancel flag. One shared flag let a rescan reset it, so the
+     * previous scan's queued probes carried on and reported into stale callbacks.
+     */
+    private final AtomicReference<AtomicBoolean> activeScan = new AtomicReference<>(new AtomicBoolean(true));
+
+    public DiscoveryService() {
+        this(Platform::runLater, DiscoveryService::candidates);
+    }
+
+    DiscoveryService(Consumer<Runnable> ui, Supplier<List<String>> targets) {
+        this.ui = ui;
+        this.targets = targets;
+    }
 
     /**
      * Scans in the background, reporting each hit as it lands. All callbacks fire on the
-     * FX thread; {@code onDone} receives the number of addresses probed.
+     * FX thread; {@code onDone} receives the number of addresses probed. Starting a scan
+     * cancels the previous one, whose callbacks then never fire.
      */
     public void scan(int port, Consumer<Found> onFound, Consumer<Integer> onDone) {
-        cancelled = false;
+        AtomicBoolean cancelled = new AtomicBoolean();
+        activeScan.getAndSet(cancelled).set(true);
         Thread driver = new Thread(
                 () -> {
-                    List<String> targets = candidates();
+                    List<String> targets = this.targets.get();
                     ExecutorService pool = Executors.newFixedThreadPool(PARALLELISM, r -> {
                         Thread t = new Thread(r, "nux-discover");
                         t.setDaemon(true);
@@ -56,11 +76,15 @@ public final class DiscoveryService {
                     AtomicInteger probed = new AtomicInteger();
                     for (String host : targets) {
                         pool.execute(() -> {
-                            probed.incrementAndGet();
-                            if (cancelled) {
+                            if (cancelled.get()) {
                                 return;
                             }
-                            probe(host, port).ifPresent(found -> Platform.runLater(() -> onFound.accept(found)));
+                            probed.incrementAndGet();
+                            probe(host, port).ifPresent(found -> ui.accept(() -> {
+                                if (!cancelled.get()) {
+                                    onFound.accept(found);
+                                }
+                            }));
                         });
                     }
                     pool.shutdown();
@@ -69,7 +93,11 @@ public final class DiscoveryService {
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                     }
-                    Platform.runLater(() -> onDone.accept(probed.get()));
+                    ui.accept(() -> {
+                        if (!cancelled.get()) {
+                            onDone.accept(probed.get());
+                        }
+                    });
                 },
                 "nux-discover-driver");
         driver.setDaemon(true);
@@ -77,7 +105,7 @@ public final class DiscoveryService {
     }
 
     public void cancel() {
-        cancelled = true;
+        activeScan.get().set(true);
     }
 
     /** Localhost plus every address in the machine's own IPv4 subnets, deduplicated. */

@@ -7,19 +7,24 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.ExecutorService;
+import java.util.Map;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 /**
- * Append-only per-UPS measurement history in {@code <configDir>/history/<ups>.csv}.
+ * Append-only measurement history, one file per UPS <em>per server</em>:
+ * {@code <configDir>/history/<ups>__<host>_<port>.csv}. Keying by name alone mixed two
+ * servers' {@code ups} (the most common name there is) into one chart and one kWh sum.
  *
- * <p>Samples are downsampled to {@link #MIN_INTERVAL_SECONDS} (a status change always
- * writes, so an outage is never smoothed away) and pruned to a retention window when
- * the file is opened. Writes go to a single daemon thread; reads are synchronous and
- * belong off the FX thread.
+ * <p>Samples are downsampled to {@link #MIN_INTERVAL_SECONDS} per file (a status change
+ * always writes, so an outage is never smoothed away). Writes and pruning share one
+ * daemon thread, so a prune's rewrite can never swallow an append that lands mid-way;
+ * reads are synchronous and belong off the FX thread.
  */
 public final class HistoryStore {
 
@@ -27,19 +32,32 @@ public final class HistoryStore {
     public static final long MIN_INTERVAL_SECONDS = 60;
 
     private final Path dir;
-    private final int retentionDays;
-    private final ExecutorService writer = Executors.newSingleThreadExecutor(r -> {
+    private volatile int retentionDays;
+    private final ScheduledExecutorService writer = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "nux-history");
         t.setDaemon(true);
         return t;
     });
 
-    private long lastWrittenEpoch = Long.MIN_VALUE;
-    private String lastWrittenStatus = "";
+    /** Per-file downsampling state; {@link #record} is called from one thread (the FX thread). */
+    private final Map<Path, HistorySample> lastWritten = new HashMap<>();
 
     public HistoryStore(Path configDir, int retentionDays) {
         this.dir = configDir.resolve("history");
-        this.retentionDays = retentionDays;
+        this.retentionDays = Math.max(1, retentionDays);
+    }
+
+    /** Applies a new retention window from the next prune on — no restart needed. */
+    public void setRetentionDays(int days) {
+        retentionDays = Math.max(1, days);
+    }
+
+    /**
+     * Prunes every history file now and then daily. Once per launch wasn't enough: a
+     * tray-resident app runs for weeks, and only the last-used UPS was ever pruned.
+     */
+    public void schedulePruning() {
+        writer.scheduleWithFixedDelay(this::pruneAllNow, 0, 1, TimeUnit.DAYS);
     }
 
     /** Decides whether a sample earns a row: first one, status change, or the interval elapsed. Pure. */
@@ -54,21 +72,35 @@ public final class HistoryStore {
     }
 
     /** Records a sample if it earns a row; returns whether it was queued for writing. */
-    public boolean record(String ups, HistorySample sample) {
-        if (!shouldPersist(lastWrittenEpoch, lastWrittenStatus, sample, MIN_INTERVAL_SECONDS)) {
+    public boolean record(String server, String ups, HistorySample sample) {
+        Path file = fileFor(server, ups);
+        HistorySample last = lastWritten.get(file);
+        if (!shouldPersist(
+                last == null ? Long.MIN_VALUE : last.epochSecond(),
+                last == null ? "" : last.status(),
+                sample,
+                MIN_INTERVAL_SECONDS)) {
             return false;
         }
-        lastWrittenEpoch = sample.epochSecond();
-        lastWrittenStatus = sample.status();
-        Path file = fileFor(ups);
+        lastWritten.put(file, sample);
         String line = sample.toCsv();
-        writer.execute(() -> appendQuietly(file, line));
+        writer.execute(() -> {
+            adoptLegacy(file, ups);
+            appendQuietly(file, line);
+        });
         return true;
     }
 
     /** Loads samples newer than {@code sinceEpoch}, oldest first. Blocking — call off the FX thread. */
-    public List<HistorySample> load(String ups, long sinceEpoch) {
-        Path file = fileFor(ups);
+    public List<HistorySample> load(String server, String ups, long sinceEpoch) {
+        Path file = fileFor(server, ups);
+        if (!Files.isRegularFile(file)) {
+            Path legacy = legacyFileFor(ups);
+            if (!Files.isRegularFile(legacy)) {
+                return List.of();
+            }
+            file = legacy; // not adopted yet (no sample written since upgrading): read it in place
+        }
         if (!Files.isRegularFile(file)) {
             return List.of();
         }
@@ -86,9 +118,20 @@ public final class HistoryStore {
         return out;
     }
 
+    /** Prunes every history file; runs on the writer thread. */
+    private void pruneAllNow() {
+        if (!Files.isDirectory(dir)) {
+            return;
+        }
+        try (Stream<Path> files = Files.list(dir)) {
+            files.filter(f -> f.getFileName().toString().endsWith(".csv")).forEach(this::pruneFile);
+        } catch (IOException e) {
+            // retention is best-effort
+        }
+    }
+
     /** Drops rows outside the retention window; rewrites only when something was actually dropped. */
-    public void prune(String ups) {
-        Path file = fileFor(ups);
+    private void pruneFile(Path file) {
         if (!Files.isRegularFile(file)) {
             return;
         }
@@ -116,12 +159,33 @@ public final class HistoryStore {
         }
     }
 
-    public Path fileFor(String ups) {
+    public Path fileFor(String server, String ups) {
+        return dir.resolve(safeName(ups) + "__" + safeName(server) + ".csv");
+    }
+
+    /** Where history lived before it was keyed by server. */
+    private Path legacyFileFor(String ups) {
         return dir.resolve(safeName(ups) + ".csv");
     }
 
     /**
-     * A UPS name is server-supplied, so reduce it to an unambiguously safe file name.
+     * Gives a pre-upgrade {@code <ups>.csv} to the first server that writes that UPS name,
+     * so upgrading doesn't orphan the history. Writer thread only, like every write.
+     */
+    private void adoptLegacy(Path file, String ups) {
+        Path legacy = legacyFileFor(ups);
+        if (!Files.exists(file) && Files.isRegularFile(legacy)) {
+            try {
+                Files.move(legacy, file);
+            } catch (IOException e) {
+                // start a fresh file; the old one stays readable by hand
+            }
+        }
+    }
+
+    /**
+     * A UPS name is server-supplied, so reduce it to an unambiguously safe file name
+     * (the server key, {@code host:port}, goes through the same filter).
      * Dots are dropped along with separators: keeping them would let a name like
      * {@code ../x} survive as {@code .._x}, which is harmless today only because
      * slashes are stripped — not a property worth depending on.
@@ -140,6 +204,12 @@ public final class HistoryStore {
         } catch (IOException e) {
             // history is best-effort; never disturb the UI over it
         }
+    }
+
+    /** Prunes every file on the writer thread and waits for it; for tests. */
+    void pruneNow() {
+        writer.execute(this::pruneAllNow);
+        awaitWrites();
     }
 
     /** Blocks until queued writes have landed. The writer is a single FIFO thread. */

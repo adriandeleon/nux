@@ -36,6 +36,17 @@ class UpsSnapshotTest {
     }
 
     @Test
+    void numbersThatJavaWouldParseButAreNotReadingsAreEmpty() {
+        for (String junk : new String[] {"NaN", "Infinity", "-Infinity", "0x1p3", "100d", "1e999", "", " "}) {
+            assertEquals(Optional.empty(), snapshot(Map.of("ups.load", junk)).loadPercent(), junk);
+        }
+        assertEquals(Optional.of(12.5), snapshot(Map.of("ups.load", " 12.5 ")).loadPercent());
+        assertEquals(Optional.of(-3.0), snapshot(Map.of("ups.temperature", "-3")).number("ups.temperature"));
+        assertEquals(Optional.of(0.5), snapshot(Map.of("x", ".5")).number("x"));
+        assertEquals(Optional.of(1200.0), snapshot(Map.of("x", "1.2e3")).number("x"));
+    }
+
+    @Test
     void modelLabelPrefersDeviceKeysAndFallsBack() {
         assertEquals(
                 "CyberPower Value 2200E",

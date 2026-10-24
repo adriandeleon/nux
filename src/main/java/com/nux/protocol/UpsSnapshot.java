@@ -11,17 +11,23 @@ public record UpsSnapshot(String ups, Map<String, String> vars, Instant at) {
         return UpsStatus.parse(vars.get("ups.status"));
     }
 
+    /**
+     * A variable as a finite decimal number, or empty. Stricter than
+     * {@link Double#parseDouble}, which also accepts {@code NaN}, {@code Infinity},
+     * hex floats and a trailing {@code d} — junk a cheap UPS can report, and which
+     * would show as 0% in the tray or write {@code Long.MAX_VALUE} into history.
+     */
     public Optional<Double> number(String key) {
         String v = vars.get(key);
-        if (v == null) {
+        if (v == null || !DECIMAL.matcher(v.trim()).matches()) {
             return Optional.empty();
         }
-        try {
-            return Optional.of(Double.parseDouble(v.trim()));
-        } catch (NumberFormatException e) {
-            return Optional.empty();
-        }
+        double value = Double.parseDouble(v.trim());
+        return Double.isFinite(value) ? Optional.of(value) : Optional.empty();
     }
+
+    private static final java.util.regex.Pattern DECIMAL =
+            java.util.regex.Pattern.compile("[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?");
 
     /** Battery charge, 0–100. */
     public Optional<Double> chargePercent() {
