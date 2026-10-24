@@ -104,6 +104,8 @@ public final class SettingsWindow {
         tls.setSelected(current.lastTls());
         CheckBox autoConnect = new CheckBox(tr("settings.autoConnect"));
         autoConnect.setSelected(current.autoConnect());
+        CheckBox watchProfiles = new CheckBox(tr("settings.watchProfiles"));
+        watchProfiles.setSelected(adv.watchProfiles());
         Button discover = new Button(tr("settings.discover"));
         GridPane connection = grid();
         connection.addRow(0, new Label(tr("settings.host")), host);
@@ -111,6 +113,8 @@ public final class SettingsWindow {
         connection.add(discover, 1, 2);
         connection.add(tls, 0, 3, 2, 1);
         connection.add(autoConnect, 0, 4, 2, 1);
+        connection.add(watchProfiles, 0, 5, 2, 1);
+        connection.add(note(tr("settings.watchProfilesNote")), 0, 6, 2, 1);
 
         // --- Tray
         CheckBox tray = new CheckBox(tr("settings.tray"));
@@ -274,6 +278,7 @@ public final class SettingsWindow {
             String lang = language.getValue();
             boolean checkUpdates = updateCheck.isSelected();
             String newTheme = theme.getValue();
+            boolean watch = watchProfiles.isSelected();
             // Only what this dialog edits; everything else comes from the live config.
             onSave.accept(live -> {
                 Advanced a = live.advanced();
@@ -293,7 +298,7 @@ public final class SettingsWindow {
                                 days, newWatts, newTariff, newCurrency, testOn, testEvery, testAt,
                                 a.selfTestLastRun(), a.selfTestArmed(), testCommand, single, lang,
                                 checkUpdates, a.lastUpdateCheckMs(), a.dismissedUpdateVersion(),
-                                newTheme, a.notifyRules(), a.watchProfiles()));
+                                newTheme, a.notifyRules(), watch));
             });
             stage.close();
         });

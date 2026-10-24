@@ -2,6 +2,7 @@ package com.nux.ui;
 
 import static com.nux.i18n.Messages.tr;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -20,7 +21,9 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 
 import com.nux.analysis.RuntimeHealth;
+import com.nux.app.FleetWatcher;
 import com.nux.config.NotifyRule;
+import com.nux.config.Profile;
 import com.nux.protocol.UpsSnapshot;
 import com.nux.protocol.UpsStatus;
 import com.nux.service.History;
@@ -58,6 +61,7 @@ public final class Dashboard extends VBox {
     private final Label power = detailValue();
     private final Label cost = detailValue();
     private final HBox overview = new HBox(8);
+    private final HBox fleet = new HBox(8);
 
     public Dashboard() {
         setSpacing(18);
@@ -98,7 +102,11 @@ public final class Dashboard extends VBox {
         overview.setVisible(false);
         overview.setManaged(false); // only takes space on a multi-UPS server
 
-        getChildren().addAll(header, overview, gauges, voltageStrip, details);
+        fleet.setAlignment(Pos.CENTER);
+        fleet.setVisible(false);
+        fleet.setManaged(false); // only takes space while other servers are watched
+
+        getChildren().addAll(header, fleet, overview, gauges, voltageStrip, details);
     }
 
     /** Battery age/health text; {@code emphasis} styles it as a warning when replacement is due. */
@@ -147,6 +155,47 @@ public final class Dashboard extends VBox {
         cost.getStyleClass().remove("detail-hint");
         if (hint) {
             cost.getStyleClass().add("detail-hint");
+        }
+    }
+
+    /**
+     * The other watched servers: one card per saved profile, coloured by its state;
+     * clicking (or Enter/Space) switches the main view to it. Empty hides the strip.
+     */
+    public void setFleet(List<FleetWatcher.Card> cards, Consumer<Profile> onPick) {
+        fleet.getChildren().clear();
+        fleet.setVisible(!cards.isEmpty());
+        fleet.setManaged(!cards.isEmpty());
+        for (FleetWatcher.Card c : cards) {
+            Label title = new Label(c.profile().name());
+            title.getStyleClass().add("overview-title");
+            String detail = c.snapshot() != null
+                    ? c.snapshot().status().label()
+                            + c.snapshot().chargePercent().map(v -> "  " + Math.round(v) + "%").orElse("")
+                    : c.problem() != null ? tr("fleet.unreachable") : tr("fleet.connecting");
+            Label state = new Label(detail);
+            state.getStyleClass().add("detail-name");
+            VBox card = new VBox(2, title, state);
+            card.getStyleClass().addAll("overview-card", switch (c.severity()) {
+                case OK -> "fleet-ok";
+                case WARNING -> "fleet-warning";
+                case CRITICAL -> "fleet-critical";
+            });
+            if (c.problem() != null) {
+                card.setAccessibleHelp(c.problem());
+                Tooltip.install(card, new Tooltip(c.problem()));
+            }
+            card.setOnMouseClicked(e -> onPick.accept(c.profile()));
+            card.setFocusTraversable(true);
+            card.setOnKeyPressed(e -> {
+                if (e.getCode() == javafx.scene.input.KeyCode.ENTER || e.getCode() == javafx.scene.input.KeyCode.SPACE) {
+                    onPick.accept(c.profile());
+                    e.consume();
+                }
+            });
+            card.setAccessibleRole(javafx.scene.AccessibleRole.BUTTON);
+            card.setAccessibleText(c.profile().name() + ": " + detail);
+            fleet.getChildren().add(card);
         }
     }
 

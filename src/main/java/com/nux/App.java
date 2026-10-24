@@ -43,6 +43,7 @@ import javafx.stage.Stage;
 import com.nux.analysis.BatteryHealth;
 import com.nux.analysis.EnergyEstimate;
 import com.nux.app.CommandRunner;
+import com.nux.app.FleetWatcher;
 import com.nux.app.ConnectionController;
 import com.nux.app.TrayController;
 import com.nux.autostart.Autostart;
@@ -115,6 +116,7 @@ public final class App extends Application {
     private ConnectionController connection;
     private CommandRunner commands;
     private TrayController tray;
+    private FleetWatcher fleet;
     // Claimed in main(), before the toolkit exists; App only wires the window to it.
     private static SingleInstance singleInstance;
 
@@ -134,6 +136,10 @@ public final class App extends Application {
                 configHolder, poll, connection, events, new DialogPrompts(), Notifier::send, Instant::now,
                 ZoneId.systemDefault());
         connection.setAfterSnapshot(commands::maybeRunScheduledTest);
+        fleet = new FleetWatcher(
+                configHolder, PollService::new, history, events,
+                cards -> dashboard.setFleet(cards, profile -> connection.connectProfile(profile)),
+                Notifier::send, Instant::now);
         tray = new TrayController(
                 configHolder,
                 () -> Trays.create(
@@ -192,7 +198,12 @@ public final class App extends Application {
                 settingsButton,
                 aboutButton);
 
-        SplitPane split = new SplitPane(dashboard, new TitledPane(tr("dashboard.allVariables"), buildVarTable()));
+        // Scrollable, so extra strips (watched servers, a multi-UPS overview) can't push the
+        // window taller than the screen; the dashboard scrolls instead when space runs out.
+        javafx.scene.control.ScrollPane dashboardScroll = new javafx.scene.control.ScrollPane(dashboard);
+        dashboardScroll.setFitToWidth(true);
+        dashboardScroll.getStyleClass().add("dashboard-scroll");
+        SplitPane split = new SplitPane(dashboardScroll, new TitledPane(tr("dashboard.allVariables"), buildVarTable()));
         split.setOrientation(Orientation.VERTICAL);
         split.setDividerPositions(0.68);
 
@@ -299,6 +310,13 @@ public final class App extends Application {
         }
     }
 
+    /** Re-aligns the background watchers with the saved profiles and what's on screen. */
+    private void refreshFleet() {
+        if (fleet != null) {
+            fleet.refresh(connection.serverKey(), connection.selectedUps());
+        }
+    }
+
     /** Rebuilds the tray's quick actions from the connection's state. */
     private void refreshTrayMenu() {
         tray.setMenu(TrayMenu.quickActions(
@@ -345,6 +363,9 @@ public final class App extends Application {
             tray.dispose();
         }
         poll.shutdown();
+        if (fleet != null) {
+            fleet.shutdown();
+        }
         updateService.shutdown();
         history.shutdown();
         events.shutdown();
@@ -453,6 +474,7 @@ public final class App extends Application {
             upsCombo.setDisable(names.isEmpty());
             refreshNotifyRule();
             refreshTrayMenu();
+            refreshFleet(); // the profile now on screen needn't be watched twice
         }
 
         @Override
@@ -470,6 +492,7 @@ public final class App extends Application {
         @Override
         public void showServer(String host, int port, boolean tls) {
             connLabel.setText(host + ":" + port + (tls ? "  (TLS)" : ""));
+            refreshFleet();
         }
 
         @Override
@@ -793,6 +816,7 @@ public final class App extends Application {
         connection.settingsSaved(before);
         tray.settingsSaved(before);
         refreshTrayMenu(); // the self-test command may have changed
+        refreshFleet(); // watching may have been switched on or off
     }
 
     // --- Profiles -------------------------------------------------------------
@@ -816,6 +840,7 @@ public final class App extends Application {
                 MenuItem item = new MenuItem(profile.name());
                 item.setOnAction(e -> {
                     configHolder.update(c -> c.withProfileRemoved(profile.name()));
+                    refreshFleet();
                     rebuildProfilesMenu();
                     refreshProfileCommands();
                 });
@@ -849,6 +874,7 @@ public final class App extends Application {
         Config c = config();
         Profile profile = new Profile(name, c.lastHost(), c.lastPort(), ups, c.lastTls());
         configHolder.update(current -> current.withProfileSaved(profile));
+        refreshFleet();
         rebuildProfilesMenu();
         refreshProfileCommands();
     }
