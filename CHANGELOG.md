@@ -6,7 +6,43 @@ All notable changes to Nux are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- History charts show where the UPS was on battery (shaded), break the line
+  across stretches when Nux wasn't running, label dates on multi-day ranges,
+  and read out the nearest sample under the pointer.
+- The event log records when server contact is **restored**, with how long it
+  was lost, and gains a Severity column.
+- Settings has a **General** tab (language, notifications, start at login,
+  single instance, update check), a *System default* language, a next-run line
+  for scheduled self-tests, and validation that says why Save is disabled.
+- Connection failures explain themselves: refused (is upsd running, does it
+  LISTEN there?), unknown host, timeout, TLS, unknown UPS, stale data, driver
+  down — instead of raw exception text.
+- The MSI installs a Start-menu entry and a desktop shortcut.
+- CI runs the tests on Linux, Windows and macOS; Dependabot watches Maven and
+  GitHub Actions.
+
 ### Changed
+
+- "Lost contact" is announced only after about 10 seconds without the server,
+  and only for a server Nux had actually reached. A upsd restart that recovers
+  on the next poll no longer raises a notification and an event each time.
+- The runtime gauge is coloured by the UPS's own low-runtime threshold instead
+  of by how full its 60-minute arc is — a healthy 27 minutes on mains was amber.
+- Runtime and input-voltage sparklines keep a minimum scale and print it, so a
+  1 V step no longer looks like a surge.
+- History is stored per server as well as per UPS
+  (`~/.nux/history/<ups>__<host>_<port>.csv`), so two servers that both call
+  their UPS `ups` keep separate charts. Existing history is carried over.
+- "Connect automatically on launch" is now only ever changed by its checkbox,
+  and is on by default.
+- Pressing Disconnect shows a neutral *Stopped* state, not the red fault pill,
+  and clears the variables table and UPS commands instead of leaving stale ones.
+- Secondary windows open once; asking again brings the open one forward.
+- The interface is fully translated: the History and Variables windows, parts
+  of Settings, palette entries and several messages were still English. A test
+  now fails the build on untranslated text.
 
 - Risky instant commands get a proper warning. Commands that cut power
   (`load.off`, `load.cycle`, `shutdown.*` and their `outlet.N` forms), run the
@@ -34,8 +70,31 @@ All notable changes to Nux are documented here. The format follows
   whole overview; it now keeps its card, shown as unknown.
 - Every UPS switch left another no-op poll task waking every 5 seconds for the
   life of the app.
-- Saving Settings no longer rolls back a self-test's last-run time recorded
-  while the dialog was open.
+- Saving Settings no longer rolls back anything written while the dialog was
+  open (the selected UPS, a self-test's last run, the update-check throttle).
+- Changing "Close to tray" while running no longer makes closing the window
+  quit (or leave an invisible process behind).
+- A command the UPS doesn't support no longer drops the connection or asks for
+  the password again; credentials containing spaces or quotes now work.
+- Scheduled self-tests wait while the UPS is on battery.
+- A hostile or broken server (or any host answering on port 3493 during
+  discovery) can no longer exhaust memory or hold the poll thread: replies are
+  bounded in size and time.
+- History pruning could lose a sample written at the same moment, ran only for
+  the last-used UPS and only at launch; it now runs safely, for every file,
+  daily, and a retention change applies without a restart. The event log's cap
+  now holds across many short sessions.
+- A discovery rescan no longer revives the previous scan.
+- Two quick launches could both start; the single-instance lock is now taken
+  before the window opens, and only the same user's Nux can raise it.
+- Windows start-at-login works when Nux is installed under `C:\Program Files`;
+  macOS start-at-login no longer launches a second copy when enabled.
+- Packaged builds format numbers for the UI language (the locale data was
+  missing from the runtime image), keeping the system's region.
+- The tray falls back cleanly when the desktop's tray host rejects it.
+- Release tags must match the pom version; `-rc` tags publish as pre-releases.
+- About showed "SNAPSHOT(development build)" with no space; Discovery printed
+  the port as "3,493".
 
 ## [0.5.0] - 2026-08-03
 

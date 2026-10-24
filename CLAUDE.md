@@ -49,9 +49,16 @@ derives it from the module main class, *not* the app name — verified with
   status is never OK), `StatusTransitions` (poll-to-poll alert detection,
   severity-ordered), `UpsSnapshot` (one `LIST VAR` poll with `Optional`-typed
   numeric accessors — UPS values are strings and cheap units report junk, so
-  nothing trusts a parse), `NutClient` (blocking socket; every read bounded by
-  the socket timeout; STARTTLS upgrade reads the pre-TLS reply **unbuffered** so
-  no handshake bytes are stolen), `TlsMode`.
+  nothing trusts a parse — `number` accepts only finite decimals), `NutClient`
+  (blocking socket; **nothing a server sends is unbounded**: each read by the
+  socket timeout, each request by a deadline of 3× it, lines at 8 KiB, lists at
+  20k lines — discovery aims this code at every host on the subnet; credentials
+  are quoted when they need it; STARTTLS upgrade reads the pre-TLS reply
+  **unbuffered** so no handshake bytes are stolen), `TlsMode`, `CommandRisk`
+  (classifies an INSTCMD by segment — cuts power / drains battery / unprotected —
+  so the confirmation can warn and default to Cancel), and
+  `NutException.isAuthFailure` (the only codes where re-asking for credentials
+  helps).
 - `com.nux.config` — pure `Config`/`Profile` records with withers +
   `ConfigStore` (properties file at `~/.nux/config.properties`, atomic
   temp+move writes, defaults on missing/malformed — never throws on load).
@@ -59,29 +66,46 @@ derives it from the module main class, *not* the app name — verified with
   (persisted under an `adv.` prefix) so `Config`'s component list stays
   readable; add new settings there, not as more top-level components.
 - `com.nux.store` — persistence beyond preferences: `HistoryStore`
-  (`~/.nux/history/<ups>.csv`, append-only, downsampled by
+  (`~/.nux/history/<ups>__<host>_<port>.csv` — keyed by server too, because
+  `ups` is the commonest UPS name there is; a pre-0.6 `<ups>.csv` is adopted by
+  the first server that writes it. Append-only, downsampled per file by
   `shouldPersist` — a status change always writes so an outage is never
-  smoothed away — with age-based `prune`; the UPS name is server-supplied so
-  `safeName` reduces it to `[a-z0-9_-]`, dots included, rather than relying on
-  slash-stripping alone) and `EventLog` (`~/.nux/events.csv`, capped, newest
-  first for the UI). Both write on their own daemon thread; `load` is
-  synchronous and belongs off the FX thread.
+  smoothed away. Pruning runs **on the writer thread** (a rewrite racing an
+  append loses the row), over every file, daily via `schedulePruning`, and
+  follows `setRetentionDays` live; server-supplied names go through `safeName`
+  → `[a-z0-9_-]`, dots included) and `EventLog` (`~/.nux/events.csv`, capped,
+  trimmed on each session's first append so short sessions can't grow it
+  forever; newest first for the UI). Both write on their own daemon thread;
+  `load` is synchronous and belongs off the FX thread.
 - `com.nux.analysis` — pure derivations over a snapshot/history:
   `BatteryHealth` (firmware date formats, age, aging/replace thresholds, and
   the UPS's own RB flag always winning), `EnergyEstimate` (measured watts,
   else load % × nominal, VA converted by power factor; kWh integration that
   **skips gaps over `MAX_GAP_SECONDS`** because a long gap means the app was
-  closed, not that power was drawn), and `TestSchedule` (next-run/due, with
-  "now" injected so the policy is testable).
+  closed, not that power was drawn), `TestSchedule` (next-run/due, with
+  "now" injected so the policy is testable; the first run hangs off the
+  persisted `selfTestArmed` instant — recomputing it from "now" each poll meant
+  it never came due), and `RuntimeHealth` (runtime colour judged against the
+  UPS's own `battery.runtime.low`, not the gauge's 60-minute arc).
 - `com.nux.service` — `PollService` (ONE daemon thread owns the `NutClient`;
   polls every 5 s, posts to the FX thread via `Platform.runLater` under a
   monotonically-increasing **generation guard** so stale results are dropped;
   reconnects each tick, the poll interval doubling as backoff; `runInstCmd`
   runs on the same thread/connection so auth state stays accurate — upsd allows
   one USERNAME per connection, and a half-failed auth drops the connection so
-  the next tick reconnects clean), `History` (NaN-tolerant sparkline ring
-  buffer), `Notifier` (best-effort OS notifications off-thread: notify-send →
-  gdbus fallback on Linux, osascript on macOS; failures swallowed).
+  the next tick reconnects clean, while a refusal like CMD-NOT-SUPPORTED leaves
+  the connection alone; the polled UPS is resolved once per connection —
+  requested if listed, else the first — and announced via `onConnected`, so the
+  UI never shows one UPS while the poller asks for a missing one; tick catches
+  RuntimeException too, because one escaping a fixed-delay task cancels it
+  silently; `start`/`stop` cancel the previous poll task), `ContactTracker`
+  (pure: "lost contact" only after 3 failed polls of a server we'd reached,
+  "restored" with the outage length), `FailureText` (connection failures as
+  sentences that say where to look), `DiscoveryService` (a cancel flag per
+  scan, so a rescan can't revive the last one), `History` (NaN-tolerant
+  sparkline ring buffer), `Notifier` (best-effort OS notifications off-thread:
+  notify-send → gdbus fallback on Linux, osascript on macOS; failures
+  swallowed).
 - `com.nux.tray` — the tray icon (see `docs/tray-icon-research.md`). `Trays`
   picks a backend at runtime: Linux → `SniTray` (a pure-Java StatusNotifierItem
   exported on the D-Bus session bus via dbus-java; fails fast when no
@@ -103,18 +127,35 @@ derives it from the module main class, *not* the app name — verified with
   concrete `List` fields makes the whole object non-exportable ("Exporting
   non-exportable type: interface java.util.List"), which silently dropped the
   SNI backend to the unreadable AWT/XEmbed fallback. Backend creation runs off
-  the FX thread (`nux-tray-init`). Config keys `tray` + `closeToTray` (both
-  default true): with a tray, window close hides (`implicitExit(false)`);
+  the FX thread (`nux-tray-init`, generation-guarded, always posts an outcome).
+  Config keys `tray` + `closeToTray` (both default true): with a tray, window
+  close hides — `App.updateImplicitExit()` is the single place that policy is
+  computed, re-run after every settings change and tray outcome;
   `stop()` ends with `System.exit(0)` so leftover AWT/D-Bus non-daemon threads
   can't keep a quit JVM alive.
 - `com.nux.command` — `Command` (id/title/action) + `CommandRegistry`
   (insertion-ordered; dynamic families — `profile.connect.*`, `ups.cmd.*` —
   swap wholesale via `removeByPrefix`; pure ranked `filter` backs the palette).
   Every user-facing action should be registered here so the palette sees it.
+- `com.nux.instance` — `SingleInstance.claim` runs in `main()`, **before** the
+  toolkit: signal a running copy (it raises its window) or take a
+  `FileChannel.tryLock` on `~/.nux/instance.lock` for the process lifetime —
+  claiming only after `stage.show()` let two quick launches both win. The port
+  file (temp+move, 0600) carries per-instance request/response tokens, so
+  another local user can't raise the window and a stale port isn't trusted.
+- `com.nux.autostart` — pure `AutostartSpec` (desktop entry, LaunchAgent plist,
+  Windows `.reg` file — `reg import`, because `reg add /d "\"…\" --minimized"`
+  was mangled by Windows argv quoting) + `Autostart` (OS calls; never on the FX
+  thread). macOS doesn't `launchctl load`: that would start a second Nux now.
 - `com.nux.ui` + `com.nux.App` — the JavaFX layer: `Dashboard`, `ArcGauge` +
-  `Sparkline` (Canvas), `CredentialsDialog`, `SettingsWindow` (connection +
-  tray + notifications; hands a whole new `Config` to `App.applySettings`,
-  which diffs and reconnects/re-inits only what changed), `CommandPalette`
+  `Sparkline` (Canvas; both expose their reading as accessible text),
+  `CredentialsDialog`, `SettingsWindow` (general/connection/tray/power/
+  automation; Save hands `App.applySettings` an **edit** — a
+  `UnaryOperator<Config>` applied to the live config — never a Config rebuilt
+  from the copy taken at open, which rolled back state written meanwhile),
+  `CommandConfirmation` (risky commands: warning, named button, Cancel
+  default), `Windows` (`raise`/`track`: a secondary window asked for twice comes
+  to the front instead of stacking a copy), `CommandPalette`
   (an in-scene overlay on the root StackPane — never a Popup, so keyboard
   focus can't strand in a separate native window; Ctrl/Cmd+Shift+P).
   AtlantaFX (PrimerDark) is the user-agent stylesheet; app styles in
@@ -204,6 +245,11 @@ Three rules worth keeping:
   `'` as an escape, so `l'onduleur … {0}` silently loses its placeholder. Only
   strings containing `{0}` are affected (plain `tr(key)` skips MessageFormat), and
   a test formats every such value to prove the placeholder survives.
+- **Keys alone don't prove a string is translated.** `NoLiteralUiTextTest` scans
+  the sources for words handed straight to a control or palette entry — whole
+  windows once shipped in English while their keys sat unused. Also: a
+  `.properties` value loses its leading spaces, so separators belong in code, and
+  pass a port to `tr()` as a String or MessageFormat prints `3,493`.
 
 ## Update check
 
@@ -247,6 +293,7 @@ OVER, OFF, ALARM.
 
 ## Roadmap pointers
 
-See README. Deferred deliberately: tray icon (AWT SystemTray is unsupported on
-Wayland/GNOME and mixing AWT into the FX process is flaky — needs an SNI/D-Bus
-approach), Windows toast notifications, release CI.
+See README and TODO.md. The tray (SNI on Linux), Windows notifications (via the
+tray icon) and release CI have all shipped. Still deliberately open: signed
+installers, a light theme, and pulling `App`'s connection/command/tray state
+into tested coordinators (it is ~1050 lines with no direct coverage).
