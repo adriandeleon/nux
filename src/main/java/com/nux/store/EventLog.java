@@ -11,6 +11,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * The persistent power-event log in {@code <configDir>/events.csv} — append-only,
@@ -116,7 +117,17 @@ public final class EventLog {
         }
     }
 
+    /**
+     * Stops the writer after the writes already queued have landed (bounded, so a stuck
+     * disk can't hang quit). Without the wait, the last event queued before quitting was
+     * lost to the {@code System.exit} that follows in {@code App.stop}.
+     */
     public void shutdown() {
         writer.shutdown();
+        try {
+            writer.awaitTermination(2, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }
