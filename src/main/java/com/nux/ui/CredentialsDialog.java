@@ -12,6 +12,7 @@ import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.GridPane;
+import javafx.stage.Window;
 
 /** A small username/password prompt for upsd authentication (INSTCMD needs it). */
 public final class CredentialsDialog {
@@ -20,8 +21,9 @@ public final class CredentialsDialog {
 
     private CredentialsDialog() {}
 
-    public static Optional<Credentials> show(String header, String initialUser) {
+    public static Optional<Credentials> show(Window owner, String header, String initialUser) {
         Dialog<Credentials> dialog = new Dialog<>();
+        dialog.initOwner(owner);
         dialog.setTitle(tr("dialog.credentials.title"));
         dialog.setHeaderText(header);
         dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);

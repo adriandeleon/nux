@@ -78,6 +78,21 @@ class WindowSmokeFxTest {
     }
 
     @Test
+    void aSecondRequestRaisesTheOpenWindowInsteadOfAddingOne(@TempDir Path dir) {
+        Window owner = owner();
+        EventLog log = new EventLog(dir);
+        List<Window> first = openedAfter(() -> EventsWindow.show(owner, log));
+        assertEquals(1, first.size());
+        List<Window> second = openedAfter(() -> EventsWindow.show(owner, log));
+        assertEquals(List.of(), second, "a second Events window was opened");
+        runOnFx(() -> first.forEach(Window::hide));
+        // Once closed, asking again opens a fresh one.
+        List<Window> third = openedAfter(() -> EventsWindow.show(owner, log));
+        assertEquals(1, third.size());
+        runOnFx(() -> third.forEach(Window::hide));
+    }
+
+    @Test
     void historyWindowOpens(@TempDir Path dir) {
         Window owner = owner();
         assertOpensAndCloses(() ->

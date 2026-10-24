@@ -136,7 +136,7 @@ public final class App extends Application {
         startMinimized = getParameters().getRaw().contains("--minimized") && config.tray();
         history = new HistoryStore(configPath.getParent(), config.advanced().historyDays());
         events = new EventLog(configPath.getParent());
-        upsCombo.setPromptText("UPS");
+        upsCombo.setPromptText(tr("toolbar.ups"));
         upsCombo.setDisable(true);
         commandsButton.setDisable(true);
         connLabel.getStyleClass().add("conn-label");
@@ -193,11 +193,14 @@ public final class App extends Application {
         palette = new CommandPalette(root, registry::all);
         registerCommands();
 
-        Scene scene = new Scene(root, 960, 760);
+        Scene scene = new Scene(root, 960, 720);
         scene.getStylesheets().add(App.class.getResource("/com/nux/nux.css").toExternalForm());
         scene.getAccelerators().put(KeyCombination.keyCombination("Shortcut+Shift+P"), palette::toggle);
         scene.getAccelerators().put(KeyCombination.keyCombination("Shortcut+Comma"), this::openSettings);
         stage.setScene(scene);
+        // The gauges are fixed-size canvases (~620 px across); below this they clip.
+        stage.setMinWidth(720);
+        stage.setMinHeight(560);
         stage.setTitle("Nux");
         for (int size : new int[] {16, 32, 64, 128, 256}) {
             var icon = App.class.getResource("/com/nux/icons/nux-" + size + ".png");
@@ -310,16 +313,20 @@ public final class App extends Application {
         registry.register("app.discover", tr("command.discover"), this::openDiscovery);
         registry.register("app.checkUpdates", tr("command.checkUpdates"), this::checkForUpdatesNow);
         if (Autostart.isSupported()) {
-            registry.register("app.autostart", "Toggle start at login", () -> {
-                boolean now = !Autostart.isEnabled();
-                Autostart.setEnabled(now, config.tray());
+            registry.register("app.autostart", tr("command.autostart"), () -> {
+                // reg.exe / launchctl: OS work, never on the FX thread.
+                boolean minimized = config.tray();
+                Thread toggle = new Thread(
+                        () -> Autostart.setEnabled(!Autostart.isEnabled(), minimized), "nux-autostart");
+                toggle.setDaemon(true);
+                toggle.start();
             });
         }
         registry.register("app.about", tr("command.about"), this::openAbout);
         registry.register("app.quit", tr("command.quit"), Platform::exit);
         for (TrayMetric metric : TrayMetric.values()) {
             registry.register(
-                    "tray.metric." + metric.key(), "Tray: show " + metric.label(), () -> setTrayMetric(metric));
+                    "tray.metric." + metric.key(), tr("command.trayMetric", metric.label()), () -> setTrayMetric(metric));
         }
         refreshProfileCommands();
     }
@@ -329,7 +336,7 @@ public final class App extends Application {
         for (Profile profile : config.profiles()) {
             registry.register(
                     "profile.connect." + profile.name(),
-                    "Connect to profile: " + profile.name(),
+                    tr("command.connectProfile", profile.name()),
                     () -> connectProfile(profile));
         }
     }
@@ -457,9 +464,9 @@ public final class App extends Application {
                 .map(d -> BatteryHealth.ageLabel(BatteryHealth.ageMonths(d, today)))
                 .orElse(health == BatteryHealth.Status.REPLACE ? "" : "—");
         if (health == BatteryHealth.Status.REPLACE) {
-            ageText = ageText.isEmpty() ? "replace" : ageText + " — replace";
+            ageText = ageText.isEmpty() ? tr("dashboard.replaceNow") : tr("dashboard.replace", ageText);
         } else if (health == BatteryHealth.Status.AGING) {
-            ageText = ageText + " — aging";
+            ageText = tr("dashboard.aging", ageText);
         }
         dashboard.setBatteryAge(ageText, health == BatteryHealth.Status.AGING || health == BatteryHealth.Status.REPLACE);
         dashboard.setPower(EnergyEstimate.watts(snapshot, config.advanced().nominalWatts())
@@ -521,7 +528,7 @@ public final class App extends Application {
             MenuItem item = new MenuItem(command);
             item.setOnAction(e -> runCommand(command));
             commandsButton.getItems().add(item);
-            registry.register("ups.cmd." + command, "UPS command: " + command, () -> runCommand(command));
+            registry.register("ups.cmd." + command, tr("command.upsCommand", command), () -> runCommand(command));
         }
         commandsButton.setDisable(commands.isEmpty());
     }
@@ -621,6 +628,7 @@ public final class App extends Application {
 
     private void info(String title, String message) {
         Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.initOwner(stage);
         alert.setTitle(title);
         alert.setHeaderText(null);
         alert.setContentText(message);
@@ -673,6 +681,7 @@ public final class App extends Application {
         poll.loadRwVariables(ups, variables -> {
             if (variables.isEmpty()) {
                 Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                alert.initOwner(stage);
                 alert.setTitle(tr("variables.noneTitle"));
                 alert.setHeaderText(tr("variables.noneHeader"));
                 alert.setContentText(tr("variables.noneBody"));
@@ -693,7 +702,7 @@ public final class App extends Application {
         }
         if (authPass == null) {
             Optional<CredentialsDialog.Credentials> creds = CredentialsDialog.show(
-                    tr("dialog.credentials.setvar"), authUser != null ? authUser : "");
+                    stage, tr("dialog.credentials.setvar"), authUser != null ? authUser : "");
             if (creds.isEmpty() || creds.get().user().isEmpty()) {
                 onResult.accept(false, tr("error.cancelled"));
                 return;
@@ -823,12 +832,14 @@ public final class App extends Application {
             info(tr("error.notConnected"), tr("error.notConnectedBody"));
             return;
         }
-        if (!CommandConfirmation.confirmed(CommandConfirmation.create(command, ups).showAndWait())) {
+        Alert confirm = CommandConfirmation.create(command, ups);
+        confirm.initOwner(stage);
+        if (!CommandConfirmation.confirmed(confirm.showAndWait())) {
             return;
         }
         if (authPass == null) {
             Optional<CredentialsDialog.Credentials> creds = CredentialsDialog.show(
-                    tr("dialog.credentials.instcmd"), authUser != null ? authUser : "");
+                    stage, tr("dialog.credentials.instcmd"), authUser != null ? authUser : "");
             if (creds.isEmpty() || creds.get().user().isEmpty()) {
                 return;
             }
@@ -841,6 +852,7 @@ public final class App extends Application {
             } else {
                 forgetCredentialsIfRejected(message);
                 Alert error = new Alert(Alert.AlertType.ERROR);
+                error.initOwner(stage);
                 error.setTitle(tr("dialog.commandFailed.title"));
                 error.setHeaderText(tr("dialog.commandFailed.header", command));
                 error.setContentText(friendlyCommandError(message));
@@ -921,6 +933,7 @@ public final class App extends Application {
 
     private void saveCurrentAsProfile() {
         TextInputDialog dialog = new TextInputDialog(config.lastHost());
+        dialog.initOwner(stage);
         dialog.setTitle(tr("dialog.saveProfile.title"));
         dialog.setHeaderText(tr("dialog.saveProfile.header"));
         dialog.setContentText(tr("dialog.saveProfile.name"));

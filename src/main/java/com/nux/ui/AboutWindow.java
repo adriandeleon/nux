@@ -36,6 +36,9 @@ public final class AboutWindow {
 
     /** {@code updateVersion} adds an "update available" line; null when up to date. */
     public static void show(Window owner, Consumer<String> openUrl, String configDir, String updateVersion) {
+        if (Windows.raise("about")) {
+            return;
+        }
         VBox header = new VBox(2, title(), version(), subtitle(tr("about.tagline")));
         header.setAlignment(Pos.CENTER_LEFT);
 
@@ -83,6 +86,7 @@ public final class AboutWindow {
         Scene scene = new Scene(root, 440, 400);
         scene.getStylesheets().add(AboutWindow.class.getResource("/com/nux/nux.css").toExternalForm());
         stage.setScene(scene);
+        Windows.track("about", stage);
         stage.show();
     }
 
@@ -103,9 +107,12 @@ public final class AboutWindow {
 
     private static Label version() {
         // A snapshot build says so, so a dev copy is never mistaken for a release.
-        String text = tr("about.version", AppInfo.VERSION) + (AppInfo.isSnapshot() ? tr("about.development") : "");
+        String text = tr("about.version", AppInfo.VERSION)
+                // .properties strips a value's leading spaces, so the separator lives here.
+                + (AppInfo.isSnapshot() ? " " + tr("about.development") : "");
         Label label = new Label(text);
         label.getStyleClass().add("detail-name");
+        label.setWrapText(true); // "0.5.1-SNAPSHOT (development build)" was cut to an ellipsis
         return label;
     }
 

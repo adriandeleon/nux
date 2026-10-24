@@ -36,12 +36,19 @@ public final class EventsWindow {
     private EventsWindow() {}
 
     public static void show(Window owner, EventLog log) {
+        if (Windows.raise("events")) {
+            return;
+        }
         TableView<UpsEvent> table = new TableView<>();
-        TableColumn<UpsEvent, String> when = column(tr("events.when"), UpsEvent::displayTime, 160);
+        TableColumn<UpsEvent, String> when = column(tr("events.when"), UpsEvent::displayTime, 150);
+        when.setMinWidth(150); // "2026-10-04 08:20" must never be cut to an ellipsis
+        // Severity as words as well as row colour, so it doesn't rest on colour alone.
+        TableColumn<UpsEvent, String> severity = column(
+                tr("events.severity"), e -> e.critical() ? tr("events.critical") : tr("events.info"), 90);
         TableColumn<UpsEvent, String> ups = column(tr("events.ups"), UpsEvent::ups, 110);
         TableColumn<UpsEvent, String> title = column(tr("events.event"), UpsEvent::title, 190);
-        TableColumn<UpsEvent, String> message = column(tr("events.details"), UpsEvent::message, 340);
-        table.getColumns().addAll(List.of(when, ups, title, message));
+        TableColumn<UpsEvent, String> message = column(tr("events.details"), UpsEvent::message, 300);
+        table.getColumns().addAll(List.of(when, severity, ups, title, message));
         table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         table.setPlaceholder(new Label(tr("events.empty")));
         // Critical rows read at a glance — that's the whole point of scanning this list.
@@ -86,9 +93,12 @@ public final class EventsWindow {
         root.setPadding(new Insets(14));
         stage.initOwner(owner);
         stage.setTitle(tr("events.title"));
-        Scene scene = new Scene(root, 820, 520);
+        Scene scene = new Scene(root, 900, 520);
         scene.getStylesheets().add(EventsWindow.class.getResource("/com/nux/nux.css").toExternalForm());
         stage.setScene(scene);
+        stage.setMinWidth(560);
+        stage.setMinHeight(300);
+        Windows.track("events", stage);
         stage.show();
         reload.run();
     }
@@ -102,20 +112,30 @@ public final class EventsWindow {
         if (target == null) {
             return;
         }
-        try {
-            Path source = log.file();
-            if (Files.isRegularFile(source)) {
-                Files.copy(source, target.toPath(), StandardCopyOption.REPLACE_EXISTING);
-            } else {
-                Files.writeString(target.toPath(), "");
-            }
-        } catch (IOException e) {
-            Alert alert = new Alert(Alert.AlertType.ERROR);
-            alert.setTitle(tr("events.exportFailed"));
-            alert.setHeaderText(tr("events.exportFailedHeader", target.getName()));
-            alert.setContentText(String.valueOf(e.getMessage()));
-            alert.show();
-        }
+        // The target may be a slow or network drive: copy off the FX thread.
+        Thread copier = new Thread(
+                () -> {
+                    try {
+                        Path source = log.file();
+                        if (Files.isRegularFile(source)) {
+                            Files.copy(source, target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                        } else {
+                            Files.writeString(target.toPath(), "");
+                        }
+                    } catch (IOException e) {
+                        Platform.runLater(() -> {
+                            Alert alert = new Alert(Alert.AlertType.ERROR);
+                            alert.initOwner(owner);
+                            alert.setTitle(tr("events.exportFailed"));
+                            alert.setHeaderText(tr("events.exportFailedHeader", target.getName()));
+                            alert.setContentText(String.valueOf(e.getMessage()));
+                            alert.show();
+                        });
+                    }
+                },
+                "nux-events-export");
+        copier.setDaemon(true);
+        copier.start();
     }
 
     private static TableColumn<UpsEvent, String> column(

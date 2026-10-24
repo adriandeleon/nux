@@ -1,5 +1,7 @@
 package com.nux.service;
 
+import static com.nux.i18n.Messages.tr;
+
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
@@ -187,7 +189,7 @@ public final class PollService {
         long gen = generation;
         executor.execute(() -> {
             if (gen != generation || client == null) {
-                fxResult(onResult, false, "Not connected");
+                fxResult(onResult, false, tr("error.notConnected"));
                 return;
             }
             try {
@@ -197,7 +199,7 @@ public final class PollService {
                     authedUser = user;
                 } else if (!authedUser.equals(user)) {
                     // upsd allows one USERNAME per connection; a clean reconnect is the only switch
-                    fxResult(onResult, false, "Already authenticated as " + authedUser + " — reconnect to switch user");
+                    fxResult(onResult, false, tr("error.alreadyAuthenticated", authedUser));
                     return;
                 }
             } catch (NutException e) {
@@ -257,7 +259,7 @@ public final class PollService {
                     if (gen != generation || client == null) {
                         // upsd already accepted the command; only its outcome is lost with
                         // the connection, so don't report a command that ran as a failure.
-                        fxResult(onResult, true, "OK (outcome unknown — the connection changed)");
+                        fxResult(onResult, true, "OK");
                         return;
                     }
                     Tracking.Result result;
@@ -265,7 +267,7 @@ public final class PollService {
                         result = client.trackingResult(id);
                     } catch (IOException | RuntimeException e) {
                         dropConnection();
-                        fxResult(onResult, false, e.getMessage() != null ? e.getMessage() : "tracking failed");
+                        fxResult(onResult, false, reason(e));
                         return;
                     }
                     switch (result.status()) {
@@ -278,8 +280,8 @@ public final class PollService {
                             if (attemptsLeft > 1) {
                                 scheduleTrackingCheck(gen, id, attemptsLeft - 1, onResult);
                             } else {
-                                fxResult(onResult, false, "still pending after "
-                                        + (TRACKING_ATTEMPTS * TRACKING_INTERVAL_MS / 1000) + "s");
+                                fxResult(onResult, false, tr(
+                                        "error.stillPending", TRACKING_ATTEMPTS * TRACKING_INTERVAL_MS / 1000));
                             }
                         }
                     }
@@ -308,7 +310,7 @@ public final class PollService {
                 fx(gen, () -> onConnected.accept(found, resolved));
             }
             if (target == null) {
-                throw new IOException("Server reports no UPS devices");
+                throw new IOException(tr("error.conn.noUps"));
             }
             String polled = target;
             UpsSnapshot snapshot = new UpsSnapshot(polled, client.listVars(polled), Instant.now());
@@ -326,7 +328,7 @@ public final class PollService {
             // would stop polling for good with the UI stuck on "connecting" (a port out of
             // range is enough — InetSocketAddress throws IllegalArgumentException).
             dropConnection();
-            String reason = reason(e);
+            String reason = FailureText.describe(e, host, port);
             boolean announce = wasConnected || gen == generation;
             wasConnected = false;
             if (announce) {

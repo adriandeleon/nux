@@ -1,5 +1,7 @@
 package com.nux.ui;
 
+import static com.nux.i18n.Messages.tr;
+
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -88,7 +90,7 @@ public final class TimeChart extends Pane {
             }
         }
         if (finite == 0) {
-            g.fillText("no data", PAD_LEFT + 8, PAD_TOP + plotH / 2);
+            g.fillText(tr("history.noData"), PAD_LEFT + 8, PAD_TOP + plotH / 2);
             return;
         }
         if (fixedMin != null) {
