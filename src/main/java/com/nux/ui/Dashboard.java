@@ -27,6 +27,7 @@ public final class Dashboard extends VBox {
 
     private final Label statusPill = new Label(tr("dashboard.notConnected"));
     private final Label modelLabel = new Label("");
+    private final Label onBatteryNote = new Label();
     private final ArcGauge charge = new ArcGauge(tr("dashboard.battery"), false);
     private final ArcGauge load = new ArcGauge(tr("dashboard.load"), true);
     private final ArcGauge runtime = new ArcGauge(tr("dashboard.runtime"), false);
@@ -58,7 +59,9 @@ public final class Dashboard extends VBox {
         statusPill.getStyleClass().addAll("status-pill", "status-neutral");
         modelLabel.getStyleClass().add("model-label");
 
-        HBox header = new HBox(14, statusPill, modelLabel);
+        onBatteryNote.getStyleClass().add("on-battery-note");
+        setOnBattery(null);
+        HBox header = new HBox(14, statusPill, modelLabel, onBatteryNote);
         header.setAlignment(Pos.CENTER_LEFT);
 
         HBox gauges = new HBox(28, column(charge, chargeSpark), column(load, loadSpark), column(runtime, runtimeSpark));
@@ -93,6 +96,13 @@ public final class Dashboard extends VBox {
         if (emphasis) {
             batteryAge.getStyleClass().add("detail-warn");
         }
+    }
+
+    /** "On battery for 3m 20s · about 25 min left at 31% load"; null hides it. */
+    public void setOnBattery(String text) {
+        onBatteryNote.setText(text == null ? "" : text);
+        onBatteryNote.setVisible(text != null);
+        onBatteryNote.setManaged(text != null);
     }
 
     public void setPower(String text) {
@@ -204,6 +214,7 @@ public final class Dashboard extends VBox {
         setBatteryAge("—", false);
         power.setText("—");
         setCost("—", false);
+        setOnBattery(null);
         setOverview(null, null, name -> {});
     }
 

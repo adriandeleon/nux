@@ -12,6 +12,12 @@
 .status-warning  { -fx-background-color: -color-warning-emphasis; }
 .status-critical { -fx-background-color: -color-danger-emphasis; }
 
+/* While on battery: how long, and how long is left. */
+.on-battery-note {
+    -fx-text-fill: -color-warning-fg;
+    -fx-font-weight: bold;
+}
+
 .model-label {
     -fx-text-fill: -color-fg-muted;
     -fx-font-size: 1.1em;

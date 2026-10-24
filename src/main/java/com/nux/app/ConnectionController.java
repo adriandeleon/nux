@@ -86,6 +86,8 @@ public final class ConnectionController {
     private String selectedUps; // the UPS being polled, as the server confirmed it
     private UpsStatus lastStatus; // previous poll's status, for transition alerts
     private UpsSnapshot lastSnapshot; // latest live data; null whenever it would be stale
+    private Instant onBatterySince; // when this outage began (or was first seen); null on mains
+    private boolean onBatterySinceExact; // false when Nux connected mid-outage
     private Consumer<UpsSnapshot> afterSnapshot = snapshot -> {};
 
     public ConnectionController(
@@ -136,6 +138,19 @@ public final class ConnectionController {
         return lastSnapshot;
     }
 
+    /** When the current outage began, or null while on mains (or not connected). */
+    public Instant onBatterySince() {
+        return onBatterySince;
+    }
+
+    /**
+     * False when Nux only saw the outage already under way (it connected mid-outage), so
+     * {@link #onBatterySince} is a lower bound rather than the real start.
+     */
+    public boolean onBatterySinceExact() {
+        return onBatterySinceExact;
+    }
+
     /** Which server a history file belongs to; UPS names repeat across servers. */
     public String serverKey() {
         return config.get().lastHost() + ":" + config.get().lastPort();
@@ -169,6 +184,7 @@ public final class ConnectionController {
         running = false;
         poll.stop();
         contact.reset();
+        onBatterySince = null;
         view.showRunning(false);
         clearLiveData();
         view.showStopped();
@@ -250,6 +266,7 @@ public final class ConnectionController {
 
     private void onSnapshot(UpsSnapshot snapshot) {
         lastSnapshot = snapshot;
+        trackOutage(snapshot.status());
         view.showSnapshot(snapshot);
         history.record(serverKey(), snapshot.ups(), HistorySample.of(snapshot));
 
@@ -277,9 +294,22 @@ public final class ConnectionController {
 
     // --- Internals ------------------------------------------------------------
 
+    /** Starts the on-battery clock on the transition (exact) or the first sighting (a lower bound). */
+    private void trackOutage(UpsStatus status) {
+        if (!status.onBattery()) {
+            onBatterySince = null;
+        } else if (onBatterySince == null) {
+            onBatterySince = clock.get();
+            onBatterySinceExact = lastStatus != null; // seen on mains first, so this is the start
+        }
+    }
+
     /** Restart polling against a (possibly) different target: history and alert state reset. */
     private void startFresh(String ups) {
+        // A different target: its outage clock starts over. A mere connection blip keeps
+        // both (startFresh isn't called), so an outage keeps counting through it.
         lastStatus = null;
+        onBatterySince = null;
         contact.reset();
         clearLiveData();
         view.resetTrends();

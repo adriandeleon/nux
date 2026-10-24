@@ -94,6 +94,50 @@ class ConnectionControllerTest {
     }
 
     @Test
+    void theOutageClockStartsOnTheTransitionAndStopsBackOnMains() {
+        app.oneUps("OL");
+        app.runFx(app.connection::connect);
+        await("on mains", () -> app.view.saw("snapshot:cp:OL"));
+        assertNull(app.onFx(app.connection::onBatterySince));
+
+        app.status("cp", "OB DISCHRG");
+        await("on battery", () -> app.view.saw("snapshot:cp:OB DISCHRG"));
+        assertTrue(app.onFx(() -> app.connection.onBatterySince() != null));
+        assertTrue(app.onFx(app.connection::onBatterySinceExact), "the transition was seen: a real start");
+
+        app.status("cp", "OL CHRG");
+        await("back on mains", () -> app.view.saw("snapshot:cp:OL CHRG"));
+        assertNull(app.onFx(app.connection::onBatterySince));
+    }
+
+    @Test
+    void connectingMidOutageGivesOnlyALowerBound() {
+        app.oneUps("OB DISCHRG");
+        app.runFx(app.connection::connect);
+        await("on battery", () -> app.view.saw("snapshot:cp:OB DISCHRG"));
+        assertTrue(app.onFx(() -> app.connection.onBatterySince() != null));
+        assertFalse(app.onFx(app.connection::onBatterySinceExact), "it was already on battery: at least this long");
+    }
+
+    @Test
+    void aConnectionBlipDoesNotRestartTheOutageClock() {
+        app.oneUps("OL");
+        app.runFx(app.connection::connect);
+        await("on mains", () -> app.view.saw("snapshot:cp:OL"));
+        app.status("cp", "OB");
+        await("on battery", () -> app.view.saw("snapshot:cp:OB"));
+        java.time.Instant since = app.onFx(app.connection::onBatterySince);
+
+        app.server.hangUp(true);
+        await("lost", () -> app.view.saw("disconnected"));
+        app.server.hangUp(false);
+        int seen = app.view.calls.size();
+        await("back", () -> app.view.calls.subList(seen, app.view.calls.size()).contains("snapshot:cp:OB"));
+        assertEquals(since, app.onFx(app.connection::onBatterySince));
+        assertTrue(app.onFx(app.connection::onBatterySinceExact));
+    }
+
+    @Test
     void withNotificationsOffEventsAreStillLogged() {
         app.config.update(c -> new Config(
                 c.profiles(), c.lastHost(), c.lastPort(), c.lastUps(), c.lastTls(), c.tlsTrustAll(),

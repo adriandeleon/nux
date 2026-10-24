@@ -57,6 +57,7 @@ import com.nux.config.Profile;
 import com.nux.i18n.Messages;
 import com.nux.instance.SingleInstance;
 import com.nux.protocol.UpsSnapshot;
+import com.nux.service.ContactTracker;
 import com.nux.service.Notifier;
 import com.nux.service.PollService;
 import com.nux.store.EventLog;
@@ -426,6 +427,7 @@ public final class App extends Application {
             dashboard.update(snapshot);
             varRows.setAll(snapshot.vars().entrySet());
             updateAnalysis(snapshot);
+            dashboard.setOnBattery(onBatteryText(snapshot));
             tray.show(snapshot);
         }
 
@@ -523,6 +525,28 @@ public final class App extends Application {
         public void setImplicitExit(boolean exitOnLastClose) {
             Platform.setImplicitExit(exitOnLastClose);
         }
+    }
+
+    /**
+     * "On battery for 3m 20s · about 25 min left at 31% load", or null on mains. The
+     * runtime is the UPS's own estimate, which it makes at the load it is carrying now.
+     */
+    private String onBatteryText(UpsSnapshot snapshot) {
+        Instant since = connection.onBatterySince();
+        if (since == null) {
+            return null;
+        }
+        String elapsed = ContactTracker.format(java.time.Duration.between(since, Instant.now()));
+        String text = tr(connection.onBatterySinceExact() ? "dashboard.onBatteryFor" : "dashboard.onBatteryForAtLeast",
+                elapsed);
+        Optional<Double> runtime = snapshot.runtimeSeconds();
+        if (runtime.isPresent()) {
+            String left = String.format("%.0f min", runtime.get() / 60);
+            text += " · " + snapshot.loadPercent()
+                    .map(load -> tr("dashboard.runtimeLeftAtLoad", left, String.format("%.0f", load)))
+                    .orElse(tr("dashboard.runtimeLeft", left));
+        }
+        return text;
     }
 
     /** Battery age/health and estimated power draw, derived from the latest snapshot. */
