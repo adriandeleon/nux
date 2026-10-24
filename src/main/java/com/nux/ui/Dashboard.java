@@ -9,11 +9,18 @@ import java.util.function.Consumer;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Label;
+import javafx.scene.control.MenuButton;
+import javafx.scene.control.RadioMenuItem;
+import javafx.scene.control.ToggleGroup;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 
 import com.nux.analysis.RuntimeHealth;
+import com.nux.config.NotifyRule;
 import com.nux.protocol.UpsSnapshot;
 import com.nux.protocol.UpsStatus;
 import com.nux.service.History;
@@ -28,6 +35,7 @@ public final class Dashboard extends VBox {
     private final Label statusPill = new Label(tr("dashboard.notConnected"));
     private final Label modelLabel = new Label("");
     private final Label onBatteryNote = new Label();
+    private final MenuButton notifyButton = new MenuButton();
     private final ArcGauge charge = new ArcGauge(tr("dashboard.battery"), false);
     private final ArcGauge load = new ArcGauge(tr("dashboard.load"), true);
     private final ArcGauge runtime = new ArcGauge(tr("dashboard.runtime"), false);
@@ -61,7 +69,11 @@ public final class Dashboard extends VBox {
 
         onBatteryNote.getStyleClass().add("on-battery-note");
         setOnBattery(null);
-        HBox header = new HBox(14, statusPill, modelLabel, onBatteryNote);
+        Region headerSpacer = new Region();
+        HBox.setHgrow(headerSpacer, Priority.ALWAYS);
+        notifyButton.getStyleClass().add("notify-button");
+        setNotifyRule(null, rule -> {});
+        HBox header = new HBox(14, statusPill, modelLabel, onBatteryNote, headerSpacer, notifyButton);
         header.setAlignment(Pos.CENTER_LEFT);
 
         HBox gauges = new HBox(28, column(charge, chargeSpark), column(load, loadSpark), column(runtime, runtimeSpark));
@@ -96,6 +108,26 @@ public final class Dashboard extends VBox {
         if (emphasis) {
             batteryAge.getStyleClass().add("detail-warn");
         }
+    }
+
+    /**
+     * The selected UPS's notification rule, as a menu to change it; {@code current} null
+     * disables it (no UPS selected).
+     */
+    public void setNotifyRule(NotifyRule current, Consumer<NotifyRule> onPick) {
+        notifyButton.getItems().clear();
+        notifyButton.setDisable(current == null);
+        NotifyRule shown = current == null ? NotifyRule.ALL : current;
+        notifyButton.setText(tr("notify.button", tr("notify." + shown.key())));
+        ToggleGroup group = new ToggleGroup();
+        for (NotifyRule rule : NotifyRule.values()) {
+            RadioMenuItem item = new RadioMenuItem(tr("notify." + rule.key()));
+            item.setToggleGroup(group);
+            item.setSelected(rule == shown);
+            item.setOnAction(e -> onPick.accept(rule));
+            notifyButton.getItems().add(item);
+        }
+        notifyButton.setTooltip(new Tooltip(tr("notify.tooltip")));
     }
 
     /** "On battery for 3m 20s · about 25 min left at 31% load"; null hides it. */

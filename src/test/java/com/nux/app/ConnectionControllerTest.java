@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import com.nux.config.Config;
+import com.nux.config.NotifyRule;
 import com.nux.config.Profile;
 import com.nux.protocol.FakeNutServer;
 import com.nux.store.UpsEvent;
@@ -91,6 +92,34 @@ class ConnectionControllerTest {
 
         app.status("cp", "OL CHRG");
         await("power restored", () -> eventTitles().contains(tr("alert.powerRestored.title")));
+    }
+
+    @Test
+    void aUpsSetToCriticalOnlyIsNotifiedOfOutagesButNotOfRecoveries() {
+        app.oneUps("OL");
+        app.runFx(app.connection::connect);
+        await("on mains", () -> app.view.saw("snapshot:cp:OL"));
+        app.runFx(() -> app.connection.setNotifyRule(NotifyRule.CRITICAL));
+
+        app.status("cp", "OB");
+        await("on-battery event", () -> eventTitles().contains(tr("alert.onBattery.title")));
+        app.status("cp", "OL");
+        await("restored event", () -> eventTitles().contains(tr("alert.powerRestored.title")));
+        assertEquals(1, app.notices.size(), "only the critical one: " + app.notices);
+        assertTrue(app.notices.getFirst().startsWith(tr("alert.onBattery.title")));
+    }
+
+    @Test
+    void aMutedUpsStillLogsEverything() {
+        app.oneUps("OL");
+        app.runFx(app.connection::connect);
+        await("on mains", () -> app.view.saw("snapshot:cp:OL"));
+        app.runFx(() -> app.connection.setNotifyRule(NotifyRule.NONE));
+        assertEquals(NotifyRule.NONE, app.onFx(app.connection::notifyRule));
+
+        app.status("cp", "OB LB");
+        await("logged", () -> eventTitles().contains(tr("alert.lowBattery.title")));
+        assertEquals(List.of(), app.notices);
     }
 
     @Test

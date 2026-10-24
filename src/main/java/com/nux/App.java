@@ -53,6 +53,7 @@ import com.nux.config.Advanced;
 import com.nux.config.Config;
 import com.nux.config.ConfigHolder;
 import com.nux.config.ConfigStore;
+import com.nux.config.NotifyRule;
 import com.nux.config.Profile;
 import com.nux.i18n.Messages;
 import com.nux.instance.SingleInstance;
@@ -338,6 +339,12 @@ public final class App extends Application {
         }
         registry.register("app.about", tr("command.about"), this::openAbout);
         registry.register("app.quit", tr("command.quit"), Platform::exit);
+        for (NotifyRule rule : NotifyRule.values()) {
+            registry.register(
+                    "notify.rule." + rule.key(),
+                    tr("command.notifyRule", tr("notify." + rule.key())),
+                    () -> setNotifyRule(rule));
+        }
         for (TrayMetric metric : TrayMetric.values()) {
             registry.register(
                     "tray.metric." + metric.key(), tr("command.trayMetric", metric.label()), () -> setTrayMetric(metric));
@@ -404,6 +411,7 @@ public final class App extends Application {
                 switchingUps = false;
             }
             upsCombo.setDisable(names.isEmpty());
+            refreshNotifyRule();
         }
 
         @Override
@@ -415,6 +423,7 @@ public final class App extends Application {
             } finally {
                 switchingUps = false;
             }
+            refreshNotifyRule();
         }
 
         @Override
@@ -476,6 +485,17 @@ public final class App extends Application {
             dashboard.showStopped();
             tray.showIdle(false);
         }
+    }
+
+    /** Shows the selected UPS's notification rule (and lets the user change it). */
+    private void refreshNotifyRule() {
+        dashboard.setNotifyRule(
+                connection.selectedUps() == null ? null : connection.notifyRule(), this::setNotifyRule);
+    }
+
+    private void setNotifyRule(NotifyRule rule) {
+        connection.setNotifyRule(rule);
+        refreshNotifyRule();
     }
 
     /** The dialogs commands need, on the main window. */

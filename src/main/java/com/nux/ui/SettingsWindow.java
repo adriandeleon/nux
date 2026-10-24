@@ -286,7 +286,8 @@ public final class SettingsWindow {
                         new Advanced(
                                 days, newWatts, newTariff, newCurrency, testOn, testEvery, testAt,
                                 a.selfTestLastRun(), a.selfTestArmed(), testCommand, single, lang,
-                                checkUpdates, a.lastUpdateCheckMs(), a.dismissedUpdateVersion()));
+                                checkUpdates, a.lastUpdateCheckMs(), a.dismissedUpdateVersion(),
+                                a.theme(), a.notifyRules(), a.watchProfiles()));
             });
             stage.close();
         });
