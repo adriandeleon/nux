@@ -63,6 +63,7 @@ import com.nux.service.Notifier;
 import com.nux.service.PollService;
 import com.nux.store.EventLog;
 import com.nux.store.HistoryStore;
+import com.nux.tray.TrayMenu;
 import com.nux.tray.TrayMetric;
 import com.nux.tray.Trays;
 import com.nux.update.ReleaseInfo;
@@ -110,6 +111,7 @@ public final class App extends Application {
     private CommandPalette palette;
     private boolean startMinimized; // --minimized: come up in the tray, not on screen
     private boolean switchingUps; // guards the combo listener during programmatic repopulation
+    private List<String> commandNames = List.of(); // the live UPS's instant commands, for the tray
     // The tested, toolkit-free halves of the app; App adapts them to the JavaFX UI.
     private ConnectionController connection;
     private CommandRunner commands;
@@ -136,7 +138,10 @@ public final class App extends Application {
         connection.setAfterSnapshot(commands::maybeRunScheduledTest);
         tray = new TrayController(
                 configHolder,
-                () -> Trays.create(this::raiseWindow, () -> Platform.runLater(Platform::exit)),
+                () -> Trays.create(
+                        this::raiseWindow,
+                        () -> Platform.runLater(Platform::exit),
+                        action -> Platform.runLater(() -> onTrayAction(action))),
                 work -> {
                     // Backend creation touches D-Bus/AWT and may block briefly.
                     Thread init = new Thread(work, "nux-tray-init");
@@ -276,6 +281,42 @@ public final class App extends Application {
                 });
     }
 
+    /**
+     * A tray quick action, on the FX thread. Commands bring the window up first, so the
+     * confirmation (risky commands warn and default to Cancel) appears where it's seen.
+     */
+    private void onTrayAction(String action) {
+        String ups = TrayMenu.upsOf(action);
+        String command = TrayMenu.commandOf(action);
+        if (TrayMenu.CONNECT.equals(action)) {
+            connection.toggle();
+        } else if (TrayMenu.SELF_TEST.equals(action)) {
+            showWindow();
+            commands.runSelfTestNow();
+        } else if (ups != null) {
+            upsCombo.setValue(ups); // the toolbar pick, which switches
+        } else if (command != null) {
+            showWindow();
+            commands.run(command);
+        }
+    }
+
+    /** Rebuilds the tray's quick actions from the connection's state. */
+    private void refreshTrayMenu() {
+        tray.setMenu(TrayMenu.quickActions(
+                connection.isRunning(),
+                List.copyOf(upsCombo.getItems()),
+                connection.selectedUps(),
+                commandNames,
+                config().advanced().selfTestCommand()));
+    }
+
+    private void showWindow() {
+        stage.setIconified(false);
+        stage.show();
+        stage.toFront();
+    }
+
     /** Brings the window up from the tray, another instance's request, or a minimised start. */
     private void raiseWindow() {
         Platform.runLater(() -> {
@@ -399,6 +440,7 @@ public final class App extends Application {
             if (!running) {
                 upsCombo.setDisable(true);
             }
+            refreshTrayMenu();
         }
 
         @Override
@@ -412,6 +454,7 @@ public final class App extends Application {
             }
             upsCombo.setDisable(names.isEmpty());
             refreshNotifyRule();
+            refreshTrayMenu();
         }
 
         @Override
@@ -451,6 +494,8 @@ public final class App extends Application {
                 registry.register("ups.cmd." + command, tr("command.upsCommand", command), () -> commands.run(command));
             }
             commandsButton.setDisable(names.isEmpty());
+            commandNames = List.copyOf(names);
+            refreshTrayMenu();
         }
 
         @Override
@@ -467,6 +512,8 @@ public final class App extends Application {
             commandsButton.getItems().clear();
             commandsButton.setDisable(true);
             registry.removeByPrefix("ups.cmd.");
+            commandNames = List.of();
+            refreshTrayMenu();
         }
 
         @Override
@@ -744,6 +791,7 @@ public final class App extends Application {
         history.setRetentionDays(config().advanced().historyDays());
         connection.settingsSaved(before);
         tray.settingsSaved(before);
+        refreshTrayMenu(); // the self-test command may have changed
     }
 
     // --- Profiles -------------------------------------------------------------

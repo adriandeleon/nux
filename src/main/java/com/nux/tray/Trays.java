@@ -2,6 +2,7 @@ package com.nux.tray;
 
 import java.util.Locale;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
  * Backend chooser. Linux tries SNI (the modern D-Bus protocol) then falls back to the
@@ -15,11 +16,11 @@ public final class Trays {
     private Trays() {}
 
     /** May block briefly (D-Bus/AWT init) — call from a background thread. */
-    public static Optional<NuxTray> create(Runnable onActivate, Runnable onQuit) {
+    public static Optional<NuxTray> create(Runnable onActivate, Runnable onQuit, Consumer<String> onAction) {
         String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         if (os.contains("linux")) {
             try {
-                return Optional.of(new SniTray(onActivate, onQuit));
+                return Optional.of(new SniTray(onActivate, onQuit, onAction));
             } catch (Throwable t) {
                 // Throwable, not Exception: a linkage error from the D-Bus stack must
                 // still reach the AWT fallback rather than kill tray init outright.
@@ -27,7 +28,7 @@ public final class Trays {
             }
         }
         try {
-            return Optional.of(new AwtTray(onActivate, onQuit));
+            return Optional.of(new AwtTray(onActivate, onQuit, onAction));
         } catch (Throwable t) {
             LOG.log(System.Logger.Level.INFO, "AWT tray unavailable: " + t.getMessage());
             return Optional.empty();

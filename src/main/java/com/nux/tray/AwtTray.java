@@ -2,7 +2,9 @@ package com.nux.tray;
 
 import static com.nux.i18n.Messages.tr;
 
+import java.awt.CheckboxMenuItem;
 import java.awt.EventQueue;
+import java.awt.Menu;
 import java.awt.MenuItem;
 import java.awt.PopupMenu;
 import java.awt.SystemTray;
@@ -11,10 +13,12 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BaseMultiResolutionImage;
 import java.awt.image.BufferedImage;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Consumer;
 
 import com.nux.service.Notifier;
 
@@ -22,7 +26,7 @@ import com.nux.service.Notifier;
  * The AWT tray backend for Windows and macOS (and legacy X11 trays). All AWT
  * mutations are marshaled onto the EDT; the icon is a multi-resolution image so
  * HiDPI trays pick a crisp variant. The menu mirrors the SNI one: a disabled live
- * status line, Open, Quit.
+ * status line, then the app's {@link TrayMenu} quick actions.
  */
 public final class AwtTray implements NuxTray {
 
@@ -34,8 +38,15 @@ public final class AwtTray implements NuxTray {
     private final SystemTray tray;
     private final TrayIcon trayIcon;
     private final MenuItem statusItem;
+    private final PopupMenu menu = new PopupMenu();
+    private final Runnable onActivate;
+    private final Runnable onQuit;
+    private final Consumer<String> onAction;
 
-    public AwtTray(Runnable onActivate, Runnable onQuit) throws Exception {
+    public AwtTray(Runnable onActivate, Runnable onQuit, Consumer<String> onAction) throws Exception {
+        this.onActivate = onActivate;
+        this.onQuit = onQuit;
+        this.onAction = onAction;
         if (!SystemTray.isSupported()) {
             throw new UnsupportedOperationException("AWT SystemTray unsupported on this desktop");
         }
@@ -43,15 +54,7 @@ public final class AwtTray implements NuxTray {
 
         statusItem = new MenuItem(tr("dashboard.notConnected"));
         statusItem.setEnabled(false);
-        MenuItem open = new MenuItem(tr("tray.open"));
-        open.addActionListener(e -> onActivate.run());
-        MenuItem quit = new MenuItem(tr("tray.quit"));
-        quit.addActionListener(e -> onQuit.run());
-        PopupMenu menu = new PopupMenu();
-        menu.add(statusItem);
-        menu.addSeparator();
-        menu.add(open);
-        menu.add(quit);
+        rebuild(TrayMenu.minimal()); // not yet shown, so building it off the EDT is safe
 
         trayIcon = new TrayIcon(multiRes(TrayDisplay.disconnected()), "Nux", menu);
         trayIcon.setImageAutoSize(true);
@@ -94,6 +97,51 @@ public final class AwtTray implements NuxTray {
             trayIcon.setToolTip(tooltip);
             statusItem.setLabel(tooltip);
         });
+    }
+
+    @Override
+    public void setMenu(TrayMenu actions) {
+        EventQueue.invokeLater(() -> rebuild(actions));
+    }
+
+    private void rebuild(TrayMenu actions) {
+        menu.removeAll();
+        menu.add(statusItem);
+        menu.addSeparator();
+        addAll(menu, actions.items());
+    }
+
+    private void addAll(Menu parent, List<TrayMenu.Item> items) {
+        for (TrayMenu.Item item : items) {
+            switch (item.kind()) {
+                case SEPARATOR -> parent.addSeparator();
+                case ACTION -> {
+                    MenuItem m = new MenuItem(item.label());
+                    m.setEnabled(item.enabled());
+                    m.addActionListener(e -> dispatch(item.id()));
+                    parent.add(m);
+                }
+                case RADIO -> {
+                    CheckboxMenuItem m = new CheckboxMenuItem(item.label(), item.checked());
+                    m.addItemListener(e -> dispatch(item.id()));
+                    parent.add(m);
+                }
+                case SUBMENU -> {
+                    Menu sub = new Menu(item.label());
+                    sub.setEnabled(item.enabled());
+                    addAll(sub, item.children());
+                    parent.add(sub);
+                }
+            }
+        }
+    }
+
+    private void dispatch(String id) {
+        switch (id) {
+            case TrayMenu.OPEN -> onActivate.run();
+            case TrayMenu.QUIT -> onQuit.run();
+            default -> onAction.accept(id);
+        }
     }
 
     /**

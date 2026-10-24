@@ -10,6 +10,9 @@ public interface NuxTray {
     /** Repaints the icon and tooltip; {@code display.attention()} maps to SNI NeedsAttention. */
     void update(TrayDisplay display, String tooltip);
 
+    /** Replaces the menu's actions (the live status line above them comes from {@link #update}). */
+    void setMenu(TrayMenu actions);
+
     /** Removes the icon; the instance is dead afterwards. */
     void dispose();
 }

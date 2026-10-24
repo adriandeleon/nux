@@ -12,6 +12,7 @@ import com.nux.config.ConfigHolder;
 import com.nux.protocol.UpsSnapshot;
 import com.nux.tray.NuxTray;
 import com.nux.tray.TrayDisplay;
+import com.nux.tray.TrayMenu;
 import com.nux.tray.TrayMetric;
 
 /**
@@ -49,6 +50,7 @@ public final class TrayController {
     private int generation; // a backend init whose generation is stale disposes its icon
     private TrayDisplay lastDisplay; // the last pushed state, to skip redundant repaints
     private String lastTooltip;
+    private TrayMenu menu = TrayMenu.minimal(); // the quick actions, re-sent to a new backend
     // What the icon should show, kept so a metric or tray change can re-render it:
     private UpsSnapshot snapshot; // live data, or null
     private boolean connectionWanted; // null snapshot: "disconnected" (retrying) vs "not connected"
@@ -120,6 +122,17 @@ public final class TrayController {
         return tray != null;
     }
 
+    /** Replaces the menu's quick actions; an unchanged menu isn't re-sent. */
+    public void setMenu(TrayMenu next) {
+        if (next.equals(menu)) {
+            return;
+        }
+        menu = next;
+        if (tray != null) {
+            tray.setMenu(next);
+        }
+    }
+
     /** Live data arrived. */
     public void show(UpsSnapshot latest) {
         snapshot = latest;
@@ -173,6 +186,7 @@ public final class TrayController {
             tray.dispose();
         }
         tray = created.get();
+        tray.setMenu(menu);
         updateImplicitExit();
         refresh();
     }

@@ -3,6 +3,7 @@ package com.nux.tray;
 import java.awt.image.BufferedImage;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import org.freedesktop.dbus.DBusPath;
 import org.freedesktop.dbus.connections.impl.DBusConnection;
@@ -31,7 +32,7 @@ public final class SniTray implements NuxTray {
     private final SniMenu.Impl menu;
     private final String busName;
 
-    public SniTray(Runnable onActivate, Runnable onQuit) throws DBusException {
+    public SniTray(Runnable onActivate, Runnable onQuit, Consumer<String> onAction) throws DBusException {
         conn = DBusConnectionBuilder.forSessionBus().build();
         try {
             DBus dbus = conn.getRemoteObject("org.freedesktop.DBus", "/org/freedesktop/DBus", DBus.class);
@@ -41,7 +42,7 @@ public final class SniTray implements NuxTray {
             }
             item = new Item(onActivate);
             conn.exportObject(PATH, item);
-            menu = new SniMenu.Impl(onActivate, onQuit);
+            menu = new SniMenu.Impl(onActivate, onQuit, onAction);
             conn.exportObject(SniMenu.PATH, menu);
             busName = "org.kde.StatusNotifierItem-" + ProcessHandle.current().pid() + "-1";
             conn.requestBusName(busName);
@@ -93,6 +94,20 @@ public final class SniTray implements NuxTray {
             }
         } catch (DBusException e) {
             LOG.log(System.Logger.Level.WARNING, "SNI update failed: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void setMenu(TrayMenu actions) {
+        int menuRevision = menu.setMenu(actions);
+        if (menuRevision < 0) {
+            return;
+        }
+        try {
+            conn.sendMessage(new SniMenu.LayoutUpdated(
+                    SniMenu.PATH, new org.freedesktop.dbus.types.UInt32(menuRevision), SniMenuModel.ROOT));
+        } catch (DBusException e) {
+            LOG.log(System.Logger.Level.WARNING, "SNI menu update failed: " + e.getMessage());
         }
     }
 

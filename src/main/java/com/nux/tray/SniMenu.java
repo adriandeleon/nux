@@ -5,6 +5,7 @@ import static com.nux.i18n.Messages.tr;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 import org.freedesktop.dbus.annotations.DBusInterfaceName;
 import org.freedesktop.dbus.exceptions.DBusException;
@@ -17,7 +18,8 @@ import org.freedesktop.dbus.types.Variant;
 /**
  * The exported com.canonical.dbusmenu object backing the SNI tray menu — the protocol
  * KDE and GNOME's AppIndicator extension pull menus through. Layout: a disabled live
- * status line, "Open Nux", a separator, "Quit Nux" (see {@link SniMenuModel}).
+ * status line, then the app's {@link TrayMenu} — quick actions, submenus, Quit (see
+ * {@link SniMenuModel}).
  */
 @DBusInterfaceName("com.canonical.dbusmenu")
 public interface SniMenu extends DBusInterface {
@@ -62,20 +64,35 @@ public interface SniMenu extends DBusInterface {
 
         private final Runnable onOpen;
         private final Runnable onQuit;
+        private final Consumer<String> onAction;
         private final AtomicInteger revision = new AtomicInteger(1);
-        private volatile String statusLine = tr("tray.notConnected");
+        private String statusLine = tr("tray.notConnected"); // guarded by this
+        private TrayMenu menu = TrayMenu.minimal(); // guarded by this
+        private volatile SniMenuModel model = new SniMenuModel(statusLine, menu);
 
-        Impl(Runnable onOpen, Runnable onQuit) {
+        Impl(Runnable onOpen, Runnable onQuit, Consumer<String> onAction) {
             this.onOpen = onOpen;
             this.onQuit = onQuit;
+            this.onAction = onAction;
         }
 
         /** Returns the new revision when the status line changed, else -1. */
-        int setStatusLine(String line) {
+        synchronized int setStatusLine(String line) {
             if (statusLine.equals(line)) {
                 return -1;
             }
             statusLine = line;
+            model = new SniMenuModel(statusLine, menu);
+            return revision.incrementAndGet();
+        }
+
+        /** Returns the new revision when the actions changed, else -1. */
+        synchronized int setMenu(TrayMenu next) {
+            if (menu.equals(next)) {
+                return -1;
+            }
+            menu = next;
+            model = new SniMenuModel(statusLine, menu);
             return revision.incrementAndGet();
         }
 
@@ -90,23 +107,21 @@ public interface SniMenu extends DBusInterface {
 
         @Override
         public MenuPair<UInt32, MenuLayout> GetLayout(int parentId, int recursionDepth, List<String> propertyNames) {
-            MenuLayout layout = parentId == SniMenuModel.ROOT
-                    ? SniMenuModel.layout(statusLine)
-                    : SniMenuModel.item(parentId, statusLine);
-            return new MenuPair<>(new UInt32(revision.get()), layout);
+            return new MenuPair<>(new UInt32(revision.get()), model.layout(parentId, recursionDepth));
         }
 
         @Override
         public List<MenuItemEntry> GetGroupProperties(List<Integer> ids, List<String> propertyNames) {
-            List<Integer> wanted = ids == null || ids.isEmpty() ? SniMenuModel.ITEM_IDS : ids;
+            SniMenuModel current = model;
+            List<Integer> wanted = ids == null || ids.isEmpty() ? current.ids() : ids;
             return wanted.stream()
-                    .map(id -> new MenuItemEntry(id, SniMenuModel.propsFor(id, statusLine)))
+                    .map(id -> new MenuItemEntry(id, current.propsFor(id)))
                     .toList();
         }
 
         @Override
         public Variant<?> GetProperty(int id, String name) {
-            Variant<?> value = SniMenuModel.propsFor(id, statusLine).get(name);
+            Variant<?> value = model.propsFor(id).get(name);
             return value != null ? value : new Variant<>("");
         }
 
@@ -115,10 +130,14 @@ public interface SniMenu extends DBusInterface {
             if (!"clicked".equals(eventId)) {
                 return;
             }
-            if (id == SniMenuModel.OPEN || id == SniMenuModel.STATUS) {
-                onOpen.run();
-            } else if (id == SniMenuModel.QUIT) {
-                onQuit.run();
+            String action = model.actionFor(id);
+            if (action == null) {
+                return;
+            }
+            switch (action) {
+                case TrayMenu.OPEN -> onOpen.run();
+                case TrayMenu.QUIT -> onQuit.run();
+                default -> onAction.accept(action);
             }
         }
 

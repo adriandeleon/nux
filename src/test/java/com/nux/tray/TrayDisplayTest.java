@@ -116,18 +116,19 @@ class TrayDisplayTest {
     }
 
     @Test
-    void menuModelDescribesTheFourItems() {
-        assertEquals("separator", SniMenuModel.propsFor(SniMenuModel.SEPARATOR, "x")
-                .get("type").getValue());
-        assertEquals(false, SniMenuModel.propsFor(SniMenuModel.STATUS, "x")
-                .get("enabled").getValue());
-        assertEquals("Online · 87%", SniMenuModel.propsFor(SniMenuModel.STATUS, "Online · 87%")
-                .get("label").getValue());
-        assertEquals("submenu", SniMenuModel.propsFor(SniMenuModel.ROOT, "x")
-                .get("children-display").getValue());
-        var layout = SniMenuModel.layout("Online");
+    void theMinimalMenuIsStatusOpenSeparatorQuit() {
+        // Before the app has said more, the tray still offers a way back and a way out.
+        SniMenuModel model = new SniMenuModel("Online", TrayMenu.minimal());
+        assertEquals(false, model.propsFor(SniMenuModel.STATUS).get("enabled").getValue());
+        assertEquals("Online", model.propsFor(SniMenuModel.STATUS).get("label").getValue());
+        assertEquals("submenu", model.propsFor(SniMenuModel.ROOT).get("children-display").getValue());
+        var layout = model.layout(SniMenuModel.ROOT, -1);
         assertEquals(SniMenuModel.ROOT, layout.id);
-        assertEquals(SniMenuModel.ITEM_IDS.size(), layout.children.size());
+        assertEquals(4, layout.children.size());
+        var separator = (MenuLayout) layout.children.get(2).getValue();
+        assertEquals("separator", separator.properties.get("type").getValue());
+        var quit = (MenuLayout) layout.children.get(3).getValue();
+        assertEquals(TrayMenu.QUIT, model.actionFor(quit.id));
     }
 
     @Test
