@@ -67,6 +67,32 @@ It also **starts with your session** and keeps a **single instance** —
 launching Nux again raises the running window instead of starting a rival copy
 polling the same UPS.
 
+## What Nux doesn't do: shut your computer down
+
+Nux **watches and alerts** — it never shuts this computer (or any other) down
+when the battery runs low. That is the job of NUT's own **`upsmon`**, which
+runs as a system service, keeps working when nobody is logged in, and
+coordinates an orderly shutdown with `upsd` (including telling the UPS to cut
+power last). Run Nux *alongside* `upsmon`, not instead of it.
+
+A minimal `upsmon` for the machine the UPS is plugged into (NUT 2.8):
+
+```ini
+# /etc/nut/upsd.users
+[upsmon]
+    password = choose-a-password
+    upsmon primary
+
+# /etc/nut/upsmon.conf
+MONITOR cyberpower@localhost 1 upsmon choose-a-password primary
+SHUTDOWNCMD "/sbin/shutdown -h +0"
+```
+
+Other machines on the same UPS use `secondary` instead of `primary` and point
+`MONITOR` at the NUT server. See the NUT
+[user manual](https://networkupstools.org/docs/user-manual.chunked/index.html)
+for the details.
+
 ## Languages
 
 The interface is available in **English, Spanish, French, German, Portuguese

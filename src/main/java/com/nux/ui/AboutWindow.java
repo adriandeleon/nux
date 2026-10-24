@@ -45,6 +45,12 @@ public final class AboutWindow {
         HBox top = new HBox(16, icon(), header);
         top.setAlignment(Pos.CENTER_LEFT);
 
+        // Said plainly, because a UPS app that only *watches* can be mistaken for one
+        // that protects the machine.
+        Label noShutdown = new Label(tr("about.noShutdown"));
+        noShutdown.getStyleClass().add("detail-name");
+        noShutdown.setWrapText(true);
+
         VBox links = new VBox(
                 2,
                 subtitle(AppInfo.COPYRIGHT),
@@ -76,7 +82,7 @@ public final class AboutWindow {
         HBox buttons = new HBox(10, copy, spacer, close);
         buttons.setAlignment(Pos.CENTER_LEFT);
 
-        VBox root = new VBox(14, top, links, details, buttons);
+        VBox root = new VBox(14, top, noShutdown, links, details, buttons);
         root.setPadding(new Insets(20));
 
         stage.initOwner(owner);
