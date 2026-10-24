@@ -33,3 +33,44 @@ jobs:
           DISPLAY: ""
           WAYLAND_DISPLAY: ""
         run: ./mvnw --batch-mode test
+
+  package:
+    # Builds the real installers before anything is tagged, so packaging breakage (a
+    # jlink module, the WiX/DMG tooling, jpackage options) shows up in a PR instead of
+    # in the release run. Runs for PRs and master only, to keep branch pushes cheap.
+    # The installers are kept for a week, which is also the easy way to try a build on
+    # a platform nobody has at hand.
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/master'
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            type: DEB
+          - os: macos-latest
+            type: DMG
+          - os: windows-latest
+            type: MSI
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - name: Package
+        shell: bash
+        # The dist profile derives a jpackage-safe version from the pom (suffix
+        # stripped, 0.x bumped to 1.x on macOS), so no override is needed here.
+        run: ./mvnw --batch-mode -Pdist package -DskipTests -Djpackage.type=${{ matrix.type }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nux-${{ matrix.type }}-${{ github.sha }}
+          path: |
+            target/dist/*.deb
+            target/dist/*.dmg
+            target/dist/*.msi
+          retention-days: 7
+          if-no-files-found: error
