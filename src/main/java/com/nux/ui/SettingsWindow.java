@@ -200,6 +200,7 @@ public final class SettingsWindow {
                     interval.getValue(),
                     time.getText().trim(),
                     adv.selfTestLastRun(),
+                    adv.selfTestArmed(),
                     command.getText().isBlank() ? Advanced.DEFAULT_TEST_COMMAND : command.getText().trim(),
                     singleInstance.isSelected(),
                     languageCode(language.getValue()),

@@ -63,6 +63,7 @@ public final class ConfigStore {
                 parseInt(p.getProperty("adv.selfTestIntervalDays"), d.selfTestIntervalDays()),
                 p.getProperty("adv.selfTestTime", d.selfTestTime()),
                 parseLong(p.getProperty("adv.selfTestLastRun"), 0),
+                parseLong(p.getProperty("adv.selfTestArmed"), 0),
                 p.getProperty("adv.selfTestCommand", d.selfTestCommand()),
                 Boolean.parseBoolean(p.getProperty("adv.singleInstance", "true")),
                 p.getProperty("adv.uiLanguage", d.uiLanguage()),
@@ -97,6 +98,7 @@ public final class ConfigStore {
         p.setProperty("adv.selfTestIntervalDays", Integer.toString(a.selfTestIntervalDays()));
         p.setProperty("adv.selfTestTime", a.selfTestTime());
         p.setProperty("adv.selfTestLastRun", Long.toString(a.selfTestLastRun()));
+        p.setProperty("adv.selfTestArmed", Long.toString(a.selfTestArmed()));
         p.setProperty("adv.selfTestCommand", a.selfTestCommand());
         p.setProperty("adv.singleInstance", Boolean.toString(a.singleInstance()));
         p.setProperty("adv.uiLanguage", a.uiLanguage());

@@ -29,9 +29,12 @@ import com.nux.protocol.RwVariable;
  */
 public final class VariablesWindow {
 
-    /** Applies a value; the callback reports (ok, message). */
+    /**
+     * Applies a value; the callback reports (ok, message). The window passes its own UPS:
+     * it isn't modal, so the main window's selection may have moved on since it opened.
+     */
     public interface Setter {
-        void set(String variable, String value, BiConsumer<Boolean, String> onResult);
+        void set(String ups, String variable, String value, BiConsumer<Boolean, String> onResult);
     }
 
     /** Re-reads the writable variables, handing them back on the FX thread. */
@@ -92,13 +95,13 @@ public final class VariablesWindow {
                     combo.getItems().setAll(selected.options());
                     combo.setValue(selected.value());
                     editorRow.getChildren().addAll(new Label(selected.name()), combo);
-                    apply.setOnAction(e -> applyValue(selected, combo.getValue(), setter, status, refresh));
+                    apply.setOnAction(e -> applyValue(ups, selected, combo.getValue(), setter, status, refresh));
                 }
                 default -> {
                     TextField field = new TextField(selected.value());
                     field.setPrefColumnCount(16);
                     editorRow.getChildren().addAll(new Label(selected.name()), field);
-                    apply.setOnAction(e -> applyValue(selected, field.getText().trim(), setter, status, refresh));
+                    apply.setOnAction(e -> applyValue(ups, selected, field.getText().trim(), setter, status, refresh));
                 }
             }
         });
@@ -122,13 +125,14 @@ public final class VariablesWindow {
         stage.show();
     }
 
-    private static void applyValue(RwVariable variable, String value, Setter setter, Label status, Runnable refresh) {
+    private static void applyValue(
+            String ups, RwVariable variable, String value, Setter setter, Label status, Runnable refresh) {
         if (!variable.accepts(value)) {
             status.setText("Value not allowed for " + variable.name());
             return;
         }
         status.setText("Applying…");
-        setter.set(variable.name(), value, (ok, message) -> {
+        setter.set(ups, variable.name(), value, (ok, message) -> {
             status.setText(ok ? "Applied" : "Failed: " + message);
             if (ok) {
                 refresh.run();

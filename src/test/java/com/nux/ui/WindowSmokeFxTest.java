@@ -105,7 +105,33 @@ class WindowSmokeFxTest {
                 new RwVariable("battery.charge.low", "20", RwVariable.Kind.RANGE, List.of(), 10.0, 50.0, 0),
                 RwVariable.string("ups.id", "desk", 8));
         assertOpensAndCloses(() ->
-                VariablesWindow.show(owner, "cp", variables, (name, value, cb) -> cb.accept(true, "OK"), onLoaded -> {}));
+                VariablesWindow.show(owner, "cp", variables, (ups, name, value, cb) -> cb.accept(true, "OK"), onLoaded -> {}));
+    }
+
+    @Test
+    void variablesWindowWritesToItsOwnUps() {
+        // The window isn't modal: by the time Apply is pressed the main window may have
+        // switched to another UPS, so the write must target the one this window shows.
+        Window owner = owner();
+        List<String> writes = new java.util.ArrayList<>();
+        List<Window> opened = openedAfter(() -> VariablesWindow.show(
+                owner,
+                "ups1",
+                List.of(RwVariable.string("ups.id", "desk", 8)),
+                (ups, name, value, cb) -> writes.add(ups + ":" + name + "=" + value),
+                onLoaded -> {}));
+        runOnFx(() -> {
+            javafx.scene.Parent root = opened.getFirst().getScene().getRoot();
+            ((javafx.scene.control.ListView<?>) root.lookup(".list-view")).getSelectionModel().select(0);
+            root.lookupAll(".button").stream()
+                    .map(javafx.scene.control.Button.class::cast)
+                    .filter(b -> "Apply".equals(b.getText()))
+                    .findFirst()
+                    .orElseThrow()
+                    .fire();
+        });
+        assertEquals(List.of("ups1:ups.id=desk"), writes);
+        runOnFx(() -> opened.forEach(Window::hide));
     }
 
     @Test

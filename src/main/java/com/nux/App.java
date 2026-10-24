@@ -20,7 +20,6 @@ import javafx.geometry.Orientation;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
-import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Menu;
@@ -73,6 +72,7 @@ import com.nux.update.ReleaseInfo;
 import com.nux.update.UpdateCheck;
 import com.nux.update.UpdateService;
 import com.nux.ui.AboutWindow;
+import com.nux.ui.CommandConfirmation;
 import com.nux.ui.CommandPalette;
 import com.nux.ui.CredentialsDialog;
 import com.nux.ui.Dashboard;
@@ -390,16 +390,16 @@ public final class App extends Application {
         poll.start(config.lastHost(), config.lastPort(), ups, config.tlsModeFor(config.lastTls()));
     }
 
-    private void onConnected(List<UpsDevice> devices) {
+    /**
+     * The combo shows exactly what the poller resolved, never a guess of its own: when the
+     * two disagreed (a UPS name the new server doesn't have), the combo showed one UPS
+     * while every poll asked for the missing one and reconnected.
+     */
+    private void onConnected(List<UpsDevice> devices, String target) {
         switchingUps = true;
         try {
-            String preferred = upsCombo.getValue() != null ? upsCombo.getValue() : config.lastUps();
             upsCombo.getItems().setAll(devices.stream().map(UpsDevice::name).toList());
-            if (preferred != null && upsCombo.getItems().contains(preferred)) {
-                upsCombo.setValue(preferred);
-            } else if (!upsCombo.getItems().isEmpty()) {
-                upsCombo.setValue(upsCombo.getItems().getFirst());
-            }
+            upsCombo.setValue(target);
         } finally {
             switchingUps = false;
         }
@@ -460,11 +460,20 @@ public final class App extends Application {
      */
     private void maybeRunScheduledTest(String ups) {
         Advanced adv = config.advanced();
-        if (!adv.selfTestEnabled() || authPass == null || authUser == null) {
+        if (!adv.selfTestEnabled()) {
+            return;
+        }
+        if (adv.selfTestArmed() <= 0) {
+            // Enabled by a config that predates arming: anchor it now, as Settings would have.
+            saveConfig(config.withAdvanced(adv.armSelfTest(adv, Instant.now().getEpochSecond())));
+            return; // armed at "now", so it can't be due on this tick anyway
+        }
+        if (authPass == null || authUser == null) {
             return;
         }
         if (!TestSchedule.isDue(
                 adv.selfTestLastRun(),
+                adv.selfTestArmed(),
                 adv.selfTestIntervalDays(),
                 TestSchedule.parseTime(adv.selfTestTime()),
                 ZoneId.systemDefault(),
@@ -614,19 +623,24 @@ public final class App extends Application {
         DiscoveryWindow.show(stage, (host, port) -> {
             saveConfig(config.withLast(host, port, "", config.lastTls()));
             refreshConnLabel();
-            switchingUps = true;
-            try {
-                upsCombo.getItems().clear();
-                upsCombo.setValue(null);
-            } finally {
-                switchingUps = false;
-            }
+            clearUpsChoice();
             if (running) {
                 startFresh(null);
             } else {
                 connect();
             }
         });
+    }
+
+    /** Forgets the selected UPS without the combo listener treating it as a user switch. */
+    private void clearUpsChoice() {
+        switchingUps = true;
+        try {
+            upsCombo.getItems().clear();
+            upsCombo.setValue(null);
+        } finally {
+            switchingUps = false;
+        }
     }
 
     private void openVariables() {
@@ -649,9 +663,9 @@ public final class App extends Application {
     }
 
     /** Applies a writable variable, prompting for credentials the same way commands do. */
-    private void setVariable(String name, String value, java.util.function.BiConsumer<Boolean, String> onResult) {
-        String ups = upsCombo.getValue();
-        if (ups == null) {
+    private void setVariable(
+            String ups, String name, String value, java.util.function.BiConsumer<Boolean, String> onResult) {
+        if (!running) {
             onResult.accept(false, tr("error.notConnected"));
             return;
         }
@@ -688,10 +702,21 @@ public final class App extends Application {
     }
 
     private void applySettings(Config updated) {
-        boolean connectionChanged = !updated.lastHost().equals(config.lastHost())
-                || updated.lastPort() != config.lastPort()
-                || updated.lastTls() != config.lastTls();
+        boolean serverChanged = !updated.lastHost().equals(config.lastHost()) || updated.lastPort() != config.lastPort();
+        boolean connectionChanged = serverChanged || updated.lastTls() != config.lastTls();
         boolean trayToggled = updated.tray() != config.tray();
+        // The dialog edits neither the last-run stamp nor the anchor; take the live values so
+        // a test that ran while it was open isn't rolled back, then re-arm if it was switched on.
+        Advanced live = config.advanced();
+        updated = updated.withAdvanced(updated.advanced()
+                .withSelfTestLastRun(live.selfTestLastRun())
+                .withSelfTestArmed(live.selfTestArmed())
+                .armSelfTest(live, Instant.now().getEpochSecond()));
+        if (serverChanged) {
+            // A UPS name belongs to the server it came from; never carry it to another one.
+            updated = updated.withLast(updated.lastHost(), updated.lastPort(), "", updated.lastTls());
+            clearUpsChoice();
+        }
         saveConfig(updated);
         refreshConnLabel();
         if (trayToggled) {
@@ -779,11 +804,7 @@ public final class App extends Application {
         if (ups == null) {
             return;
         }
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
-        confirm.setTitle(tr("dialog.runCommand.title"));
-        confirm.setHeaderText(tr("dialog.runCommand.header", command, ups));
-        confirm.setContentText(tr("dialog.runCommand.body"));
-        if (confirm.showAndWait().filter(b -> b == ButtonType.OK).isEmpty()) {
+        if (!CommandConfirmation.confirmed(CommandConfirmation.create(command, ups).showAndWait())) {
             return;
         }
         if (authPass == null) {

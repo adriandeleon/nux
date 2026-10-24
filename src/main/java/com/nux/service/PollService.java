@@ -6,8 +6,8 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -41,7 +41,7 @@ public final class PollService {
     private static final int TRACKING_ATTEMPTS = 10;
     private static final long TRACKING_INTERVAL_MS = 700;
 
-    private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(r -> {
+    private final ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, r -> {
         Thread t = new Thread(r, "nux-poll");
         t.setDaemon(true);
         return t;
@@ -60,9 +60,12 @@ public final class PollService {
 
     PollService(Consumer<Runnable> ui) {
         this.ui = ui;
+        // A cancelled poll task should leave the queue now, not linger until its next due time.
+        executor.setRemoveOnCancelPolicy(true);
     }
 
     private volatile long generation = 0;
+    private ScheduledFuture<?> pollTask; // the current fixed-delay poll; guarded by "this"
 
     // Poll-thread confined:
     private NutClient client;
@@ -71,15 +74,20 @@ public final class PollService {
     private String cmdTarget; // the UPS whose command list was last fetched and announced
     private Boolean trackingEnabled; // null = not yet asked on this connection
     private List<UpsDevice> devices = List.of();
+    private String target; // the UPS actually being polled, resolved once per connection
 
     // FX-thread confined:
-    private Consumer<List<UpsDevice>> onConnected = devices -> {};
+    private BiConsumer<List<UpsDevice>, String> onConnected = (devices, target) -> {};
     private Consumer<UpsSnapshot> onSnapshot = snapshot -> {};
     private Consumer<Map<String, UpsSnapshot>> onOverview = all -> {};
     private Consumer<List<String>> onCommands = commands -> {};
     private Consumer<String> onDisconnected = reason -> {};
 
-    public void setOnConnected(Consumer<List<UpsDevice>> handler) {
+    /**
+     * Fires on each (re)connection with the server's UPS list and the one being polled:
+     * the requested UPS when the server has it, otherwise the first listed.
+     */
+    public void setOnConnected(BiConsumer<List<UpsDevice>, String> handler) {
         this.onConnected = handler;
     }
 
@@ -101,22 +109,43 @@ public final class PollService {
     }
 
     /** (Re)starts polling {@code host:port}; {@code ups} null means "the first UPS listed". */
-    public void start(String host, int port, String ups, TlsMode tls) {
+    public synchronized void start(String host, int port, String ups, TlsMode tls) {
         long gen = ++generation;
+        cancelPolling();
         executor.execute(this::dropConnection);
-        executor.scheduleWithFixedDelay(() -> tick(gen, host, port, ups, tls), 0, POLL_SECONDS, TimeUnit.SECONDS);
+        pollTask = executor.scheduleWithFixedDelay(
+                () -> tick(gen, host, port, ups, tls), 0, POLL_SECONDS, TimeUnit.SECONDS);
     }
 
     /** Stops polling; safe to {@link #start} again afterwards. */
-    public void stop() {
+    public synchronized void stop() {
         generation++;
+        cancelPolling();
         executor.execute(this::dropConnection);
     }
 
-    public void shutdown() {
+    public synchronized void shutdown() {
         generation++;
+        cancelPolling();
         executor.execute(this::dropConnection);
         executor.shutdown();
+    }
+
+    /**
+     * Cancels the superseded poll task. The generation guard already makes it a no-op, but
+     * left scheduled it would wake every 5 seconds forever — one more per UPS switch.
+     * Not interrupted: a tick mid-request finishes and its results are dropped by the guard.
+     */
+    private void cancelPolling() {
+        if (pollTask != null) {
+            pollTask.cancel(false);
+            pollTask = null;
+        }
+    }
+
+    /** Tasks waiting on the poll thread; for tests to prove superseded polls don't pile up. */
+    int queuedTasks() {
+        return executor.getQueue().size();
     }
 
     /**
@@ -250,28 +279,30 @@ public final class PollService {
             if (client == null) {
                 client = NutClient.connect(host, port, TIMEOUT, tls);
                 devices = client.listUps();
+                target = resolveTarget(ups, devices);
                 wasConnected = true;
                 List<UpsDevice> found = devices;
-                fx(gen, () -> onConnected.accept(found));
-                if (ups == null && !devices.isEmpty()) {
-                    ups = devices.getFirst().name();
-                }
+                String resolved = target;
+                fx(gen, () -> onConnected.accept(found, resolved));
             }
-            String target = ups != null ? ups : firstUpsName();
             if (target == null) {
                 throw new IOException("Server reports no UPS devices");
             }
-            UpsSnapshot snapshot = new UpsSnapshot(target, client.listVars(target), Instant.now());
+            String polled = target;
+            UpsSnapshot snapshot = new UpsSnapshot(polled, client.listVars(polled), Instant.now());
             fx(gen, () -> onSnapshot.accept(snapshot));
-            if (!target.equals(cmdTarget)) {
-                List<String> commands = client.listCmds(target);
-                cmdTarget = target;
+            if (!polled.equals(cmdTarget)) {
+                List<String> commands = client.listCmds(polled);
+                cmdTarget = polled;
                 fx(gen, () -> onCommands.accept(commands));
             }
             if (devices.size() > 1) {
-                pollOverview(gen, target, snapshot);
+                pollOverview(gen, polled, snapshot);
             }
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
+            // RuntimeException too: one escaping a fixed-delay task cancels it silently, which
+            // would stop polling for good with the UI stuck on "connecting" (a port out of
+            // range is enough — InetSocketAddress throws IllegalArgumentException).
             dropConnection();
             String reason = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             boolean announce = wasConnected || gen == generation;
@@ -280,6 +311,18 @@ public final class PollService {
                 fx(gen, () -> onDisconnected.accept(reason));
             }
         }
+    }
+
+    /**
+     * The requested UPS when the server lists it, else the first one. Polling a name the
+     * server doesn't have fails every tick, so falling back here (and announcing the
+     * choice through {@code onConnected}) is what keeps the UI and the poller agreeing.
+     */
+    static String resolveTarget(String requested, List<UpsDevice> devices) {
+        if (requested != null && devices.stream().anyMatch(d -> d.name().equals(requested))) {
+            return requested;
+        }
+        return devices.isEmpty() ? null : devices.getFirst().name();
     }
 
     /** Adds the other UPSes to the just-polled one; a single failure doesn't sink the tick. */
@@ -292,16 +335,17 @@ public final class PollService {
             }
             try {
                 all.put(device.name(), new UpsSnapshot(device.name(), client.listVars(device.name()), Instant.now()));
+            } catch (NutException e) {
+                // upsd refused this one UPS (DATA-STALE, DRIVER-NOT-CONNECTED…) but the
+                // connection is fine: keep its card, with no data, so it reads as unknown.
+                all.put(device.name(), new UpsSnapshot(device.name(), Map.of(), Instant.now()));
             } catch (IOException e) {
-                return; // connection trouble; the next tick's main poll will surface it
+                // The stream may be mid-reply, so it can't be trusted for the next request.
+                dropConnection();
+                return;
             }
         }
         fx(gen, () -> onOverview.accept(all));
-    }
-
-    private String firstUpsName() throws IOException {
-        devices = client.listUps();
-        return devices.isEmpty() ? null : devices.getFirst().name();
     }
 
     private void dropConnection() {
@@ -310,6 +354,7 @@ public final class PollService {
             client = null;
         }
         authedUser = null;
+        target = null;
         cmdTarget = null;
         trackingEnabled = null;
     }

@@ -124,28 +124,63 @@ class AnalysisTest {
     // --- TestSchedule
 
     @Test
-    void firstRunWaitsForTheNextScheduledTime() {
+    void anUnarmedScheduleNeverRuns() {
         ZoneId utc = ZoneOffset.UTC;
         Instant now = Instant.parse("2026-08-02T10:00:00Z");
-        // 03:00 already passed today, so the first run is tomorrow — never a surprise test on enable
+        assertEquals(Optional.empty(), TestSchedule.nextRun(0, 0, 30, LocalTime.of(3, 0), utc));
+        assertFalse(TestSchedule.isDue(0, 0, 30, LocalTime.of(3, 0), utc, now));
+    }
+
+    @Test
+    void firstRunIsTheNextScheduledTimeAfterArming() {
+        ZoneId utc = ZoneOffset.UTC;
+        long armed = Instant.parse("2026-08-02T10:00:00Z").getEpochSecond();
+        // 03:00 already passed on the arming day, so the first run is the next morning —
+        // never a surprise test on enable
         assertEquals(
-                Instant.parse("2026-08-03T03:00:00Z"),
-                TestSchedule.nextRun(0, 30, LocalTime.of(3, 0), utc, now));
+                Optional.of(Instant.parse("2026-08-03T03:00:00Z")),
+                TestSchedule.nextRun(0, armed, 30, LocalTime.of(3, 0), utc));
         assertEquals(
-                Instant.parse("2026-08-02T22:00:00Z"),
-                TestSchedule.nextRun(0, 30, LocalTime.of(22, 0), utc, now));
-        assertFalse(TestSchedule.isDue(0, 30, LocalTime.of(3, 0), utc, now));
+                Optional.of(Instant.parse("2026-08-02T22:00:00Z")),
+                TestSchedule.nextRun(0, armed, 30, LocalTime.of(22, 0), utc));
+    }
+
+    @Test
+    void aNeverRunScheduleComesDueOnceItsFirstRunArrives() {
+        // The regression: the first run used to be recomputed from "now" on every poll, so
+        // it was always tomorrow and a freshly enabled schedule never fired at all.
+        ZoneId utc = ZoneOffset.UTC;
+        long armed = Instant.parse("2026-08-02T10:00:00Z").getEpochSecond();
+        LocalTime at = LocalTime.of(3, 0);
+        assertFalse(TestSchedule.isDue(0, armed, 30, at, utc, Instant.parse("2026-08-02T10:00:05Z")));
+        assertFalse(TestSchedule.isDue(0, armed, 30, at, utc, Instant.parse("2026-08-03T02:59:59Z")));
+        assertTrue(TestSchedule.isDue(0, armed, 30, at, utc, Instant.parse("2026-08-03T03:00:00Z")));
+        // …and stays due (overdue) until it runs, e.g. when the machine was off at 03:00
+        assertTrue(TestSchedule.isDue(0, armed, 30, at, utc, Instant.parse("2026-08-05T09:00:00Z")));
     }
 
     @Test
     void subsequentRunsFollowTheInterval() {
         ZoneId utc = ZoneOffset.UTC;
+        long armed = Instant.parse("2026-06-01T12:00:00Z").getEpochSecond();
         long lastRun = Instant.parse("2026-07-03T03:00:00Z").getEpochSecond();
         assertEquals(
-                Instant.parse("2026-08-02T03:00:00Z"),
-                TestSchedule.nextRun(lastRun, 30, LocalTime.of(3, 0), utc, Instant.parse("2026-07-20T00:00:00Z")));
-        assertFalse(TestSchedule.isDue(lastRun, 30, LocalTime.of(3, 0), utc, Instant.parse("2026-07-20T00:00:00Z")));
-        assertTrue(TestSchedule.isDue(lastRun, 30, LocalTime.of(3, 0), utc, Instant.parse("2026-08-02T03:00:01Z")));
+                Optional.of(Instant.parse("2026-08-02T03:00:00Z")),
+                TestSchedule.nextRun(lastRun, armed, 30, LocalTime.of(3, 0), utc));
+        assertFalse(TestSchedule.isDue(lastRun, armed, 30, LocalTime.of(3, 0), utc, Instant.parse("2026-07-20T00:00:00Z")));
+        assertTrue(TestSchedule.isDue(lastRun, armed, 30, LocalTime.of(3, 0), utc, Instant.parse("2026-08-02T03:00:01Z")));
+    }
+
+    @Test
+    void reEnablingALapsedScheduleWaitsForTheNextScheduledTime() {
+        // Last run long ago, so the interval alone says "overdue"; re-arming today must win.
+        ZoneId utc = ZoneOffset.UTC;
+        long lastRun = Instant.parse("2026-01-10T03:00:00Z").getEpochSecond();
+        long reArmed = Instant.parse("2026-08-02T10:00:00Z").getEpochSecond();
+        assertEquals(
+                Optional.of(Instant.parse("2026-08-03T03:00:00Z")),
+                TestSchedule.nextRun(lastRun, reArmed, 30, LocalTime.of(3, 0), utc));
+        assertFalse(TestSchedule.isDue(lastRun, reArmed, 30, LocalTime.of(3, 0), utc, Instant.parse("2026-08-02T10:00:05Z")));
     }
 
     @Test

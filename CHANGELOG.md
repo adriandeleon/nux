@@ -4,6 +4,39 @@ All notable changes to Nux are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- Risky instant commands get a proper warning. Commands that cut power
+  (`load.off`, `load.cycle`, `shutdown.*` and their `outlet.N` forms), run the
+  battery down (calibration, deep test, simulated failure) or leave equipment
+  unprotected (bypass) now show what will happen, a button naming the command,
+  and **Cancel as the default** — Enter, Enter from the palette no longer
+  switches off the equipment. Everyday commands keep the plain OK/Cancel.
+
+### Fixed
+
+- Scheduled battery self-tests never ran: the first run was recomputed from
+  "now" on every poll, so it was always tomorrow. The schedule is now armed
+  (`adv.selfTestArmed`) when it is switched on or its time changes, and the
+  first run is the next scheduled time after that. Re-enabling a lapsed
+  schedule no longer fires an overdue test straight away.
+- Pointing Settings at another server, or renaming a UPS in `ups.conf`, could
+  leave Nux polling a UPS name the server doesn't have — reconnecting every
+  5 seconds with a lost/restored notification pair each time. The poller now
+  falls back to the first listed UPS and the toolbar shows exactly that.
+- The writable-variables window wrote to whichever UPS the main window had
+  selected, not the one it showed.
+- An unexpected (non-I/O) error, such as a port out of range, stopped polling
+  for good with the UI stuck on "connecting". It is now reported and retried.
+- On a multi-UPS server, one UPS the server refused (e.g. `DATA-STALE`) hid the
+  whole overview; it now keeps its card, shown as unknown.
+- Every UPS switch left another no-op poll task waking every 5 seconds for the
+  life of the app.
+- Saving Settings no longer rolls back a self-test's last-run time recorded
+  while the dialog was open.
+
 ## [0.5.0] - 2026-08-03
 
 ### Added
