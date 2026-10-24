@@ -6,6 +6,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
@@ -69,6 +70,18 @@ public final class Messages {
             return systemLanguage;
         }
         return "en";
+    }
+
+    /**
+     * The default locale for a UI in {@code language}: the system locale itself when it
+     * speaks that language, so its region survives (German on a de-AT system formats
+     * numbers the Austrian way), otherwise the bare language. Pure, for testing.
+     */
+    public static Locale uiLocale(String language, Locale system) {
+        if (system != null && system.getLanguage().equals(language)) {
+            return system;
+        }
+        return Locale.forLanguageTag(language);
     }
 
     /**

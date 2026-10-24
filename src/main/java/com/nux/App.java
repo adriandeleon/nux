@@ -957,11 +957,13 @@ public final class App extends Application {
 
         // The catalogue must be loaded here, not in start(): field initialisers call tr()
         // and they run when JavaFX constructs the Application, before start() is entered.
-        // Locale.setDefault makes JavaFX's own dialog buttons (OK/Cancel) match.
-        String language = Messages.resolve(
-                startup.advanced().uiLanguage(), Messages.available(), Locale.getDefault().getLanguage());
+        // Locale.setDefault makes JavaFX's own dialog buttons (OK/Cancel) match; it keeps
+        // the system region when the language agrees, so number formats stay the user's.
+        Locale system = Locale.getDefault();
+        String language =
+                Messages.resolve(startup.advanced().uiLanguage(), Messages.available(), system.getLanguage());
         Messages.init(language);
-        Locale.setDefault(Locale.forLanguageTag(language));
+        Locale.setDefault(Messages.uiLocale(language, system));
 
         // If Nux is already running, raise its window and stop before the toolkit starts;
         // otherwise claim the lock now, so a second quick launch can't also get through.
