@@ -1,5 +1,7 @@
 package com.nux.autostart;
 
+import static com.nux.i18n.Messages.tr;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -41,9 +43,9 @@ public final class Autostart {
     /** Why the toggle is unavailable, for the settings UI to explain itself. */
     public static String unavailableReason() {
         if (launcherPath().isEmpty()) {
-            return "Available only in an installed build (not when running from source).";
+            return tr("autostart.sourceRun");
         }
-        return "Not supported on this desktop.";
+        return tr("autostart.unsupported");
     }
 
     public static boolean isEnabled() {
