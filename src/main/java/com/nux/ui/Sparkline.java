@@ -1,9 +1,10 @@
 package com.nux.ui;
 
+import javafx.beans.value.ChangeListener;
+import javafx.beans.value.WeakChangeListener;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.layout.StackPane;
-import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.scene.text.TextAlignment;
 
@@ -16,21 +17,21 @@ import javafx.scene.text.TextAlignment;
  */
 public final class Sparkline extends StackPane {
 
-    private static final Color LINE = Color.web("#58a6ff");
-    private static final Color BASELINE = Color.web("#6e7781", 0.25);
-    private static final Color SCALE = Color.web("#8b949e", 0.8);
     private static final double LABEL_GUTTER = 24;
 
     private final Canvas canvas;
     private final Double fixedMin;
     private final Double fixedMax;
     private double minSpan;
+    private double[] lastValues = new double[0]; // repainted as-is on a theme change
+    private final ChangeListener<Theme.Palette> repaint = (o, was, now) -> update(lastValues);
 
     public Sparkline(double width, double height, Double fixedMin, Double fixedMax) {
         this.canvas = new Canvas(width, height);
         this.fixedMin = fixedMin;
         this.fixedMax = fixedMax;
         getChildren().add(canvas);
+        Theme.paletteProperty().addListener(new WeakChangeListener<>(repaint));
         update(new double[0]);
     }
 
@@ -41,11 +42,13 @@ public final class Sparkline extends StackPane {
     }
 
     public void update(double[] values) {
+        lastValues = values;
+        Theme.Palette p = Theme.palette();
         GraphicsContext g = canvas.getGraphicsContext2D();
         double w = canvas.getWidth();
         double h = canvas.getHeight();
         g.clearRect(0, 0, w, h);
-        g.setStroke(BASELINE);
+        g.setStroke(p.track());
         g.setLineWidth(1);
         g.strokeLine(0, h - 0.5, w, h - 0.5);
 
@@ -86,7 +89,7 @@ public final class Sparkline extends StackPane {
         // can never draw over the label at the top.
         double plotW = autoscaled ? w - LABEL_GUTTER : w;
         if (autoscaled) {
-            g.setFill(SCALE);
+            g.setFill(p.scale());
             g.setFont(Font.font(9));
             g.setTextAlign(TextAlignment.RIGHT);
             g.fillText(String.format("%.0f", max), w, 9);
@@ -94,7 +97,7 @@ public final class Sparkline extends StackPane {
         }
 
         double stepX = values.length > 1 ? plotW / (values.length - 1) : 0;
-        g.setStroke(LINE);
+        g.setStroke(p.line());
         g.setLineWidth(1.5);
         boolean penDown = false;
         double prevX = 0;

@@ -40,8 +40,6 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.stage.Stage;
 
-import atlantafx.base.theme.PrimerDark;
-
 import com.nux.analysis.BatteryHealth;
 import com.nux.analysis.EnergyEstimate;
 import com.nux.app.CommandRunner;
@@ -80,6 +78,7 @@ import com.nux.ui.HistoryWindow;
 import com.nux.ui.Money;
 import com.nux.ui.Screenshot;
 import com.nux.ui.SettingsWindow;
+import com.nux.ui.Theme;
 import com.nux.ui.VariablesWindow;
 
 /** Nux — a simple, powerful NUT (Network UPS Tools) client. */
@@ -122,9 +121,8 @@ public final class App extends Application {
     @Override
     public void start(Stage stage) {
         this.stage = stage;
-        Application.setUserAgentStylesheet(new PrimerDark().getUserAgentStylesheet());
-
         configHolder = ConfigHolder.load(configPath);
+        Theme.apply(config().advanced().theme());
         // Only honour --minimized when there is a tray to minimise to, or the app would
         // start invisible with no way to reach it.
         startMinimized = getParameters().getRaw().contains("--minimized") && config().tray();
@@ -789,6 +787,9 @@ public final class App extends Application {
             return edited.withAdvanced(edited.advanced().armSelfTest(c.advanced(), now));
         });
         history.setRetentionDays(config().advanced().historyDays());
+        if (!config().advanced().theme().equals(before.advanced().theme())) {
+            Theme.apply(config().advanced().theme()); // live: no restart for a theme
+        }
         connection.settingsSaved(before);
         tray.settingsSaved(before);
         refreshTrayMenu(); // the self-test command may have changed

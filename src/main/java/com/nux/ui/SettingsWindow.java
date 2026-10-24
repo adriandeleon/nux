@@ -70,6 +70,10 @@ public final class SettingsWindow {
         language.getItems().setAll(languages.keySet());
         language.setConverter(converter(languages::get, name -> SYSTEM_LANGUAGE));
         language.setValue(languages.containsKey(adv.uiLanguage()) ? adv.uiLanguage() : SYSTEM_LANGUAGE);
+        ComboBox<String> theme = new ComboBox<>();
+        theme.getItems().setAll(Advanced.THEME_SYSTEM, "dark", "light");
+        theme.setConverter(converter(t -> tr("settings.theme." + t), t -> Advanced.THEME_SYSTEM));
+        theme.setValue(theme.getItems().contains(adv.theme()) ? adv.theme() : Advanced.THEME_SYSTEM);
         CheckBox notifications = new CheckBox(tr("settings.notifications"));
         notifications.setSelected(current.notifications());
         CheckBox singleInstance = new CheckBox(tr("settings.singleInstance"));
@@ -81,13 +85,14 @@ public final class SettingsWindow {
         GridPane general = grid();
         general.addRow(0, new Label(tr("settings.language")), language);
         general.add(note(tr("settings.languageNote")), 0, 1, 2, 1);
-        general.add(notifications, 0, 2, 2, 1);
-        general.add(autostart, 0, 3, 2, 1);
-        general.add(note(tr("settings.autostartNote")), 0, 4, 2, 1);
-        general.add(singleInstance, 0, 5, 2, 1);
-        general.add(note(tr("settings.singleInstanceNote")), 0, 6, 2, 1);
-        general.add(updateCheck, 0, 7, 2, 1);
-        general.add(note(tr("settings.updateCheckNote")), 0, 8, 2, 1);
+        general.addRow(2, new Label(tr("settings.theme")), theme);
+        general.add(notifications, 0, 3, 2, 1);
+        general.add(autostart, 0, 4, 2, 1);
+        general.add(note(tr("settings.autostartNote")), 0, 5, 2, 1);
+        general.add(singleInstance, 0, 6, 2, 1);
+        general.add(note(tr("settings.singleInstanceNote")), 0, 7, 2, 1);
+        general.add(updateCheck, 0, 8, 2, 1);
+        general.add(note(tr("settings.updateCheckNote")), 0, 9, 2, 1);
 
         // --- Connection
         TextField host = new TextField(current.lastHost());
@@ -268,6 +273,7 @@ public final class SettingsWindow {
             boolean single = singleInstance.isSelected();
             String lang = language.getValue();
             boolean checkUpdates = updateCheck.isSelected();
+            String newTheme = theme.getValue();
             // Only what this dialog edits; everything else comes from the live config.
             onSave.accept(live -> {
                 Advanced a = live.advanced();
@@ -287,7 +293,7 @@ public final class SettingsWindow {
                                 days, newWatts, newTariff, newCurrency, testOn, testEvery, testAt,
                                 a.selfTestLastRun(), a.selfTestArmed(), testCommand, single, lang,
                                 checkUpdates, a.lastUpdateCheckMs(), a.dismissedUpdateVersion(),
-                                a.theme(), a.notifyRules(), a.watchProfiles()));
+                                newTheme, a.notifyRules(), a.watchProfiles()));
             });
             stage.close();
         });
