@@ -119,6 +119,7 @@ public final class App extends Application {
     private String authUser; // session-cached upsd credentials for INSTCMD
     private String authPass;
     private NuxTray tray;
+    private int trayGeneration; // FX thread; a tray init whose generation is stale disposes its icon
     // Claimed in main(), before the toolkit exists; App only wires the window to it.
     private static SingleInstance singleInstance;
     private TrayDisplay lastTrayDisplay;
@@ -694,12 +695,18 @@ public final class App extends Application {
         if (trayToggled) {
             if (config.tray()) {
                 initTray();
-            } else if (tray != null) {
-                tray.dispose();
-                tray = null;
-                Platform.setImplicitExit(true);
+            } else {
+                trayGeneration++; // an init still in flight must not install its icon
+                if (tray != null) {
+                    tray.dispose();
+                    tray = null;
+                }
+                if (!stage.isShowing()) {
+                    stage.show(); // nothing left to bring it back from
+                }
             }
         }
+        updateImplicitExit(); // closeToTray can change without the tray toggling
         refreshTray();
         if (running && connectionChanged) {
             startFresh(upsCombo.getValue());
@@ -712,39 +719,67 @@ public final class App extends Application {
 
     // --- Tray icon ------------------------------------------------------------
 
-    /** Backend creation touches D-Bus/AWT and may block briefly, so it runs off the FX thread. */
+    /**
+     * Backend creation touches D-Bus/AWT and may block briefly, so it runs off the FX
+     * thread. It always posts an outcome, even when the backend throws something
+     * unexpected: a {@code --minimized} start waits on it to decide whether to show.
+     */
     private void initTray() {
         if (!config.tray()) {
             return;
         }
+        int generation = ++trayGeneration;
         Runnable activate = this::raiseWindow;
         Runnable quit = () -> Platform.runLater(Platform::exit);
         Thread init = new Thread(
                 () -> {
-                    Optional<NuxTray> created = Trays.create(activate, quit);
-                    Platform.runLater(() -> {
-                        if (created.isEmpty()) {
-                            // No tray after all: a window started minimised would be
-                            // unreachable, so bring it up rather than hiding forever.
-                            if (startMinimized && !stage.isShowing()) {
-                                stage.show();
-                            }
-                            return;
-                        }
-                        if (!config.tray()) {
-                            created.get().dispose(); // toggled back off while we were starting
-                            return;
-                        }
-                        tray = created.get();
-                        if (config.closeToTray()) {
-                            Platform.setImplicitExit(false);
-                        }
-                        refreshTray();
-                    });
+                    Optional<NuxTray> created;
+                    try {
+                        created = Trays.create(activate, quit);
+                    } catch (Throwable t) {
+                        LOG.log(System.Logger.Level.WARNING, "Tray initialisation failed", t);
+                        created = Optional.empty();
+                    }
+                    Optional<NuxTray> outcome = created;
+                    Platform.runLater(() -> onTrayCreated(generation, outcome));
                 },
                 "nux-tray-init");
         init.setDaemon(true);
         init.start();
+    }
+
+    private void onTrayCreated(int generation, Optional<NuxTray> created) {
+        if (generation != trayGeneration || !config.tray()) {
+            // Toggled off (or off and on again) while starting: a newer init, if any,
+            // owns the tray now. Without this two inits could both assign it.
+            created.ifPresent(NuxTray::dispose);
+            return;
+        }
+        if (created.isEmpty()) {
+            // No tray after all: a window started minimised would be unreachable, so
+            // bring it up rather than hiding forever.
+            if (!stage.isShowing()) {
+                stage.show();
+            }
+            updateImplicitExit();
+            return;
+        }
+        if (tray != null) {
+            tray.dispose();
+        }
+        tray = created.get();
+        updateImplicitExit();
+        refreshTray();
+    }
+
+    /**
+     * The single place the close policy lives: closing the last window hides it (and the
+     * app keeps running) only when there is a tray to come back from AND the user asked
+     * for close-to-tray. Re-run whenever either changes; anything else either quits on
+     * close when it shouldn't or leaves an invisible process behind.
+     */
+    private void updateImplicitExit() {
+        Platform.setImplicitExit(!(tray != null && config.closeToTray()));
     }
 
     /** Recomputes the tray from the latest data (metric/settings changes bypass the dedupe). */
