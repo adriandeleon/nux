@@ -302,6 +302,9 @@
                                         <jLinkOption>--include-locales=en,es,fr,de,pt,it</jLinkOption>
                                     </jLinkOptions>
                                     <destination>${project.build.directory}/dist</destination>
+                                    <!-- jpackage refuses an existing destination (plugin 1.8 stopped
+                                         clearing it), so a second -Pdist package without clean failed. -->
+                                    <removeDestination>true</removeDestination>
                                     <icon>${jpackage.icon}</icon>
                                     <resourceDir>${jpackage.resourceDir}</resourceDir>
                                     <!-- Windows (ignored elsewhere). Without win-menu/win-shortcut
