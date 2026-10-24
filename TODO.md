@@ -60,19 +60,15 @@ but have never been exercised against real hardware or a real server configurati
 - [x] Headless-FX harness (`FxTestSupport`, JavaFX 26's built-in Headless platform, no
       TestFX dependency) covering the dashboard, the command palette, and a smoke test
       that every secondary window opens.
-- [ ] `App` itself (~1050 lines) still has no direct coverage — the
-      snapshot→dashboard→tray wiring, connect/disconnect state and settings-apply
-      diffing live there. The pure decisions have been pulled out and tested
-      (`ContactTracker`, `TestSchedule` arming, `CommandRisk`, `FailureText`,
-      `RuntimeHealth`); a `ConnectionController` driven against `FakeNutServer` is the
-      next step, then `CommandRunner`/`TrayController`.
+- [x] ~~`App` coverage~~ — its state machines now live in `com.nux.app`
+      (`ConnectionController`, `CommandRunner`, `TrayController`), tested against
+      `FakeNutServer` and a fake tray; `App` is UI construction and adapters (~760
+      lines).
 - [x] ~~A settings round-trip test~~ — `SettingsWindowFxTest` drives the dialog's own
       controls and checks the edit Save hands back.
 - [ ] The tray backends (`SniTray`, `AwtTray`, `Trays`) are untested — they need a
       D-Bus session or an AWT tray. `SniMenu.Impl`'s GetLayout/GetGroupProperties/Event
       logic is plain Java, though, and could be tested without a bus.
-- [ ] Extract `App` into per-feature coordinators, mirroring Editora's
-      `ui/*Coordinator` split (see above).
 - [ ] Spotless + a formatter, so formatting stops being a matter of habit.
 - [x] ~~Dependabot~~ (maven + github-actions, weekly) and CI tests on all three OSes.
 - [ ] A CI job that also builds the dist app-image on each platform, to catch

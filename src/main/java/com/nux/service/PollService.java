@@ -38,7 +38,7 @@ import com.nux.protocol.UpsSnapshot;
 public final class PollService {
 
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
-    private static final long POLL_SECONDS = 5;
+    private static final Duration POLL_INTERVAL = Duration.ofSeconds(5);
     /** Tracking polls: 10 × 700 ms ≈ 7 s, comfortably longer than a driver takes to answer. */
     private static final int TRACKING_ATTEMPTS = 10;
     private static final long TRACKING_INTERVAL_MS = 700;
@@ -55,13 +55,24 @@ public final class PollService {
      * FX thread.
      */
     private final Consumer<Runnable> ui;
+    private final long intervalMillis;
 
     public PollService() {
         this(Platform::runLater);
     }
 
     PollService(Consumer<Runnable> ui) {
+        this(ui, POLL_INTERVAL);
+    }
+
+    /**
+     * For tests of the code above this service (the app's controllers): results go
+     * through {@code ui}, and polls come every {@code interval} so a reconnect or a
+     * status change doesn't cost a test five seconds a tick.
+     */
+    public PollService(Consumer<Runnable> ui, Duration interval) {
         this.ui = ui;
+        this.intervalMillis = Math.max(1, interval.toMillis());
         // A cancelled poll task should leave the queue now, not linger until its next due time.
         executor.setRemoveOnCancelPolicy(true);
     }
@@ -116,7 +127,7 @@ public final class PollService {
         cancelPolling();
         executor.execute(this::dropConnection);
         pollTask = executor.scheduleWithFixedDelay(
-                () -> tick(gen, host, port, ups, tls), 0, POLL_SECONDS, TimeUnit.SECONDS);
+                () -> tick(gen, host, port, ups, tls), 0, intervalMillis, TimeUnit.MILLISECONDS);
     }
 
     /** Stops polling; safe to {@link #start} again afterwards. */

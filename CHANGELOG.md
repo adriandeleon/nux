@@ -51,6 +51,14 @@ All notable changes to Nux are documented here. The format follows
   and **Cancel as the default** — Enter, Enter from the palette no longer
   switches off the equipment. Everyday commands keep the plain OK/Cancel.
 
+### Internal
+
+- `App`'s connection, command and tray logic moved into toolkit-free
+  controllers (`com.nux.app`: `ConnectionController`, `CommandRunner`,
+  `TrayController`) sharing one `ConfigHolder`, tested end to end against the
+  in-process fake upsd and a fake tray backend. `App` is now UI construction
+  and adapters.
+
 ### Fixed
 
 - Scheduled battery self-tests never ran: the first run was recomputed from

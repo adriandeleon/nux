@@ -147,6 +147,19 @@ derives it from the module main class, *not* the app name — verified with
   Windows `.reg` file — `reg import`, because `reg add /d "\"…\" --minimized"`
   was mangled by Windows argv quoting) + `Autostart` (OS calls; never on the FX
   thread). macOS doesn't `launchctl load`: that would start a second Nux now.
+- `com.nux.app` — the app's **toolkit-free controllers**, pulled out of `App` so
+  its state machines are tested against `FakeNutServer`: `ConnectionController`
+  (connect/disconnect/switch UPS/switch server, poll results → `View`, history,
+  transition alerts, lost/restored contact, which UPS commands may target),
+  `CommandRunner` (session credentials, confirm → log in → run → report, writable
+  variables, the scheduled self-test with an injected clock; dialogs via
+  `Prompts`) and `TrayController` (backend lifecycle, generation-guarded init,
+  repaint dedupe, the close-to-tray policy; JavaFX reached via `Window`). They
+  share one `ConfigHolder` (`config` package): every change is
+  `update(UnaryOperator)` + save, so nothing writes back a stale copy. `App` only
+  builds the UI and adapts it to these interfaces (`ConnectionView`,
+  `DialogPrompts`, `MainWindow`) — new behaviour belongs in a controller, not
+  in `App`.
 - `com.nux.ui` + `com.nux.App` — the JavaFX layer: `Dashboard`, `ArcGauge` +
   `Sparkline` (Canvas; both expose their reading as accessible text),
   `CredentialsDialog`, `SettingsWindow` (general/connection/tray/power/
@@ -172,7 +185,12 @@ derives it from the module main class, *not* the app name — verified with
   (2) `FakeNutServer` (test-scope, `com.nux.protocol`) — an in-process upsd
   speaking canned NUT over a loopback socket, so `NutClient` and `PollService`
   are asserted in both directions: the exact bytes sent and how replies are
-  read. Unscripted requests get `ERR UNKNOWN-COMMAND`, so a typo fails loudly.
+  read. Unscripted requests get `ERR UNKNOWN-COMMAND`, so a typo fails loudly;
+  `replace` changes a reply mid-test and `hangUp` makes the server vanish (live
+  connection included) and return on the same port. The `com.nux.app`
+  controllers run on it too, through `AppHarness`: one "fake-fx" executor stands
+  in for the FX thread and `PollService` gets a 120 ms tick, so a reconnect or
+  a status transition takes milliseconds.
   Anything the client sends *without* reading a reply (`LOGOUT` on close) must
   be asserted with `awaitReceived`, since the server records on its own thread.
   (3) **Headless FX** — `FxTestSupport` boots JavaFX 26's built-in Headless
@@ -294,6 +312,6 @@ OVER, OFF, ALARM.
 ## Roadmap pointers
 
 See README and TODO.md. The tray (SNI on Linux), Windows notifications (via the
-tray icon) and release CI have all shipped. Still deliberately open: signed
-installers, a light theme, and pulling `App`'s connection/command/tray state
-into tested coordinators (it is ~1050 lines with no direct coverage).
+tray icon) and release CI have all shipped, and `App`'s connection, command and
+tray state now lives in tested controllers (`com.nux.app`). Still deliberately
+open: signed installers and a light theme.
