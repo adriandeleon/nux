@@ -100,7 +100,7 @@ jobs:
           done
           ls -la stage/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: nux-${{ matrix.target }}
           path: stage/*
