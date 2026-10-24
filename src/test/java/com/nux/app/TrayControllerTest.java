@@ -24,6 +24,7 @@ import com.nux.config.ConfigHolder;
 import com.nux.protocol.UpsSnapshot;
 import com.nux.tray.NuxTray;
 import com.nux.tray.TrayDisplay;
+import com.nux.tray.TrayMenu;
 
 /**
  * The tray lifecycle with a fake backend. Backend creation is queued and run by hand, so
@@ -186,6 +187,19 @@ class TrayControllerTest {
     }
 
     @Test
+    void aBackendCreatedLaterGetsTheLatestMenuAndUnchangedMenusAreNotResent() {
+        TrayMenu connected = TrayMenu.quickActions(true, List.of("cp"), "cp", List.of("beeper.toggle"), "x");
+        tray.setMenu(connected); // before the backend exists
+        tray.start();
+        finishInits();
+        assertEquals(List.of(connected), created.getFirst().menus, "the new icon gets the current actions");
+        tray.setMenu(TrayMenu.quickActions(true, List.of("cp"), "cp", List.of("beeper.toggle"), "x"));
+        assertEquals(1, created.getFirst().menus.size(), "an equal menu isn't re-sent");
+        tray.setMenu(TrayMenu.quickActions(false, List.of(), null, List.of(), "x"));
+        assertEquals(2, created.getFirst().menus.size());
+    }
+
+    @Test
     void disposeRemovesTheIconAndCancelsAPendingInit() {
         tray.start();
         tray.dispose(); // quit while the backend is still starting
@@ -196,6 +210,7 @@ class TrayControllerTest {
 
     private static final class FakeTray implements NuxTray {
         final List<TrayDisplay> updates = new ArrayList<>();
+        final List<TrayMenu> menus = new ArrayList<>();
         String lastTooltip;
         boolean disposed;
 
@@ -203,6 +218,11 @@ class TrayControllerTest {
         public void update(TrayDisplay display, String tooltip) {
             updates.add(display);
             lastTooltip = tooltip;
+        }
+
+        @Override
+        public void setMenu(TrayMenu actions) {
+            menus.add(actions);
         }
 
         @Override

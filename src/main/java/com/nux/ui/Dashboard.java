@@ -2,6 +2,7 @@ package com.nux.ui;
 
 import static com.nux.i18n.Messages.tr;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -9,11 +10,20 @@ import java.util.function.Consumer;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Label;
+import javafx.scene.control.MenuButton;
+import javafx.scene.control.RadioMenuItem;
+import javafx.scene.control.ToggleGroup;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 
 import com.nux.analysis.RuntimeHealth;
+import com.nux.app.FleetWatcher;
+import com.nux.config.NotifyRule;
+import com.nux.config.Profile;
 import com.nux.protocol.UpsSnapshot;
 import com.nux.protocol.UpsStatus;
 import com.nux.service.History;
@@ -27,6 +37,8 @@ public final class Dashboard extends VBox {
 
     private final Label statusPill = new Label(tr("dashboard.notConnected"));
     private final Label modelLabel = new Label("");
+    private final Label onBatteryNote = new Label();
+    private final MenuButton notifyButton = new MenuButton();
     private final ArcGauge charge = new ArcGauge(tr("dashboard.battery"), false);
     private final ArcGauge load = new ArcGauge(tr("dashboard.load"), true);
     private final ArcGauge runtime = new ArcGauge(tr("dashboard.runtime"), false);
@@ -47,7 +59,9 @@ public final class Dashboard extends VBox {
     private final Label serial = detailValue();
     private final Label batteryAge = detailValue();
     private final Label power = detailValue();
+    private final Label cost = detailValue();
     private final HBox overview = new HBox(8);
+    private final HBox fleet = new HBox(8);
 
     public Dashboard() {
         setSpacing(18);
@@ -57,7 +71,13 @@ public final class Dashboard extends VBox {
         statusPill.getStyleClass().addAll("status-pill", "status-neutral");
         modelLabel.getStyleClass().add("model-label");
 
-        HBox header = new HBox(14, statusPill, modelLabel);
+        onBatteryNote.getStyleClass().add("on-battery-note");
+        setOnBattery(null);
+        Region headerSpacer = new Region();
+        HBox.setHgrow(headerSpacer, Priority.ALWAYS);
+        notifyButton.getStyleClass().add("notify-button");
+        setNotifyRule(null, rule -> {});
+        HBox header = new HBox(14, statusPill, modelLabel, onBatteryNote, headerSpacer, notifyButton);
         header.setAlignment(Pos.CENTER_LEFT);
 
         HBox gauges = new HBox(28, column(charge, chargeSpark), column(load, loadSpark), column(runtime, runtimeSpark));
@@ -75,12 +95,18 @@ public final class Dashboard extends VBox {
         details.addRow(0, detailName(tr("dashboard.input")), inputVoltage, detailName(tr("dashboard.output")), outputVoltage);
         details.addRow(1, detailName(tr("dashboard.batteryLabel")), batteryVoltage, detailName(tr("dashboard.serial")), serial);
         details.addRow(2, detailName(tr("dashboard.batteryAge")), batteryAge, detailName(tr("dashboard.power")), power);
+        details.add(detailName(tr("dashboard.cost")), 0, 3);
+        details.add(cost, 1, 3, 3, 1);
 
         overview.setAlignment(Pos.CENTER);
         overview.setVisible(false);
         overview.setManaged(false); // only takes space on a multi-UPS server
 
-        getChildren().addAll(header, overview, gauges, voltageStrip, details);
+        fleet.setAlignment(Pos.CENTER);
+        fleet.setVisible(false);
+        fleet.setManaged(false); // only takes space while other servers are watched
+
+        getChildren().addAll(header, fleet, overview, gauges, voltageStrip, details);
     }
 
     /** Battery age/health text; {@code emphasis} styles it as a warning when replacement is due. */
@@ -92,8 +118,85 @@ public final class Dashboard extends VBox {
         }
     }
 
+    /**
+     * The selected UPS's notification rule, as a menu to change it; {@code current} null
+     * disables it (no UPS selected).
+     */
+    public void setNotifyRule(NotifyRule current, Consumer<NotifyRule> onPick) {
+        notifyButton.getItems().clear();
+        notifyButton.setDisable(current == null);
+        NotifyRule shown = current == null ? NotifyRule.ALL : current;
+        notifyButton.setText(tr("notify.button", tr("notify." + shown.key())));
+        ToggleGroup group = new ToggleGroup();
+        for (NotifyRule rule : NotifyRule.values()) {
+            RadioMenuItem item = new RadioMenuItem(tr("notify." + rule.key()));
+            item.setToggleGroup(group);
+            item.setSelected(rule == shown);
+            item.setOnAction(e -> onPick.accept(rule));
+            notifyButton.getItems().add(item);
+        }
+        notifyButton.setTooltip(new Tooltip(tr("notify.tooltip")));
+    }
+
+    /** "On battery for 3m 20s · about 25 min left at 31% load"; null hides it. */
+    public void setOnBattery(String text) {
+        onBatteryNote.setText(text == null ? "" : text);
+        onBatteryNote.setVisible(text != null);
+        onBatteryNote.setManaged(text != null);
+    }
+
     public void setPower(String text) {
         power.setText(text);
+    }
+
+    /** What the current draw costs per hour/day/week/month, or a hint when no price is set. */
+    public void setCost(String text, boolean hint) {
+        cost.setText(text);
+        cost.getStyleClass().remove("detail-hint");
+        if (hint) {
+            cost.getStyleClass().add("detail-hint");
+        }
+    }
+
+    /**
+     * The other watched servers: one card per saved profile, coloured by its state;
+     * clicking (or Enter/Space) switches the main view to it. Empty hides the strip.
+     */
+    public void setFleet(List<FleetWatcher.Card> cards, Consumer<Profile> onPick) {
+        fleet.getChildren().clear();
+        fleet.setVisible(!cards.isEmpty());
+        fleet.setManaged(!cards.isEmpty());
+        for (FleetWatcher.Card c : cards) {
+            Label title = new Label(c.profile().name());
+            title.getStyleClass().add("overview-title");
+            String detail = c.snapshot() != null
+                    ? c.snapshot().status().label()
+                            + c.snapshot().chargePercent().map(v -> "  " + Math.round(v) + "%").orElse("")
+                    : c.problem() != null ? tr("fleet.unreachable") : tr("fleet.connecting");
+            Label state = new Label(detail);
+            state.getStyleClass().add("detail-name");
+            VBox card = new VBox(2, title, state);
+            card.getStyleClass().addAll("overview-card", switch (c.severity()) {
+                case OK -> "fleet-ok";
+                case WARNING -> "fleet-warning";
+                case CRITICAL -> "fleet-critical";
+            });
+            if (c.problem() != null) {
+                card.setAccessibleHelp(c.problem());
+                Tooltip.install(card, new Tooltip(c.problem()));
+            }
+            card.setOnMouseClicked(e -> onPick.accept(c.profile()));
+            card.setFocusTraversable(true);
+            card.setOnKeyPressed(e -> {
+                if (e.getCode() == javafx.scene.input.KeyCode.ENTER || e.getCode() == javafx.scene.input.KeyCode.SPACE) {
+                    onPick.accept(c.profile());
+                    e.consume();
+                }
+            });
+            card.setAccessibleRole(javafx.scene.AccessibleRole.BUTTON);
+            card.setAccessibleText(c.profile().name() + ": " + detail);
+            fleet.getChildren().add(card);
+        }
     }
 
     /** The multi-UPS strip: one clickable card per UPS, hidden when the server has only one. */
@@ -191,6 +294,8 @@ public final class Dashboard extends VBox {
         serial.setText("—");
         setBatteryAge("—", false);
         power.setText("—");
+        setCost("—", false);
+        setOnBattery(null);
         setOverview(null, null, name -> {});
     }
 

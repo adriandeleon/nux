@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import com.nux.config.Config;
+import com.nux.config.NotifyRule;
 import com.nux.config.Profile;
 import com.nux.protocol.FakeNutServer;
 import com.nux.store.UpsEvent;
@@ -91,6 +92,78 @@ class ConnectionControllerTest {
 
         app.status("cp", "OL CHRG");
         await("power restored", () -> eventTitles().contains(tr("alert.powerRestored.title")));
+    }
+
+    @Test
+    void aUpsSetToCriticalOnlyIsNotifiedOfOutagesButNotOfRecoveries() {
+        app.oneUps("OL");
+        app.runFx(app.connection::connect);
+        await("on mains", () -> app.view.saw("snapshot:cp:OL"));
+        app.runFx(() -> app.connection.setNotifyRule(NotifyRule.CRITICAL));
+
+        app.status("cp", "OB");
+        await("on-battery event", () -> eventTitles().contains(tr("alert.onBattery.title")));
+        app.status("cp", "OL");
+        await("restored event", () -> eventTitles().contains(tr("alert.powerRestored.title")));
+        assertEquals(1, app.notices.size(), "only the critical one: " + app.notices);
+        assertTrue(app.notices.getFirst().startsWith(tr("alert.onBattery.title")));
+    }
+
+    @Test
+    void aMutedUpsStillLogsEverything() {
+        app.oneUps("OL");
+        app.runFx(app.connection::connect);
+        await("on mains", () -> app.view.saw("snapshot:cp:OL"));
+        app.runFx(() -> app.connection.setNotifyRule(NotifyRule.NONE));
+        assertEquals(NotifyRule.NONE, app.onFx(app.connection::notifyRule));
+
+        app.status("cp", "OB LB");
+        await("logged", () -> eventTitles().contains(tr("alert.lowBattery.title")));
+        assertEquals(List.of(), app.notices);
+    }
+
+    @Test
+    void theOutageClockStartsOnTheTransitionAndStopsBackOnMains() {
+        app.oneUps("OL");
+        app.runFx(app.connection::connect);
+        await("on mains", () -> app.view.saw("snapshot:cp:OL"));
+        assertNull(app.onFx(app.connection::onBatterySince));
+
+        app.status("cp", "OB DISCHRG");
+        await("on battery", () -> app.view.saw("snapshot:cp:OB DISCHRG"));
+        assertTrue(app.onFx(() -> app.connection.onBatterySince() != null));
+        assertTrue(app.onFx(app.connection::onBatterySinceExact), "the transition was seen: a real start");
+
+        app.status("cp", "OL CHRG");
+        await("back on mains", () -> app.view.saw("snapshot:cp:OL CHRG"));
+        assertNull(app.onFx(app.connection::onBatterySince));
+    }
+
+    @Test
+    void connectingMidOutageGivesOnlyALowerBound() {
+        app.oneUps("OB DISCHRG");
+        app.runFx(app.connection::connect);
+        await("on battery", () -> app.view.saw("snapshot:cp:OB DISCHRG"));
+        assertTrue(app.onFx(() -> app.connection.onBatterySince() != null));
+        assertFalse(app.onFx(app.connection::onBatterySinceExact), "it was already on battery: at least this long");
+    }
+
+    @Test
+    void aConnectionBlipDoesNotRestartTheOutageClock() {
+        app.oneUps("OL");
+        app.runFx(app.connection::connect);
+        await("on mains", () -> app.view.saw("snapshot:cp:OL"));
+        app.status("cp", "OB");
+        await("on battery", () -> app.view.saw("snapshot:cp:OB"));
+        java.time.Instant since = app.onFx(app.connection::onBatterySince);
+
+        app.server.hangUp(true);
+        await("lost", () -> app.view.saw("disconnected"));
+        app.server.hangUp(false);
+        int seen = app.view.calls.size();
+        await("back", () -> app.view.calls.subList(seen, app.view.calls.size()).contains("snapshot:cp:OB"));
+        assertEquals(since, app.onFx(app.connection::onBatterySince));
+        assertTrue(app.onFx(app.connection::onBatterySinceExact));
     }
 
     @Test

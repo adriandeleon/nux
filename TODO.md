@@ -34,7 +34,7 @@ but have never been exercised against real hardware or a real server configurati
 
 ## Known gaps
 
-- [ ] The app theme is hardcoded to AtlantaFX PrimerDark; no light/dark switch.
+- [x] ~~Light/dark switch~~ — Settings → General → Theme (follows the system by default).
 
 ## Distribution
 
@@ -45,15 +45,19 @@ but have never been exercised against real hardware or a real server configurati
 
 ## Features
 
-- [ ] History: aggregate (downsample) long ranges so a 30-day chart doesn't plot
-      40k points; export the selected range as CSV.
-- [ ] Energy: per-day and per-month breakdown rather than a single total for the range.
+- [x] ~~History: downsample long ranges; export as CSV~~ — min/max per pixel column
+      (`Decimate`); Export CSV on the Charts tab.
+- [x] ~~Energy: per-day and per-month breakdown~~ — the Energy & cost tab, per hour, day,
+      week or month, plus the dashboard's cost per hour/day/week/month at the current draw.
+- [x] ~~Outage report~~ — the Outages tab.
 - [ ] Self-tests: notify on completion, and keep a visible test history (the event log
       records them, but there is no dedicated view).
-- [ ] Tray menu: switch UPS and run the most common instant commands without opening
-      the window.
+- [x] ~~Tray menu: switch UPS and run instant commands~~ — tray quick actions.
 - [ ] Discovery: IPv6 support, and remember previously discovered servers.
-- [ ] Per-UPS notification rules (e.g. ignore a UPS that is expected to be on battery).
+- [x] ~~Per-UPS notification rules~~ — the dashboard's Notify menu.
+- [x] ~~Watch several servers at once~~ — Settings → Connection; cards on the dashboard.
+- [ ] Watched servers in the tray: today the icon reflects only the UPS on screen; a
+      watched server on battery notifies but doesn't colour the icon.
 
 ## Engineering
 
@@ -71,5 +75,6 @@ but have never been exercised against real hardware or a real server configurati
       logic is plain Java, though, and could be tested without a bus.
 - [ ] Spotless + a formatter, so formatting stops being a matter of habit.
 - [x] ~~Dependabot~~ (maven + github-actions, weekly) and CI tests on all three OSes.
-- [ ] A CI job that also builds the dist app-image on each platform, to catch
-      packaging breakage before a tag; pin third-party actions by SHA.
+- [x] ~~A CI job that builds the installers before a tag~~ — `package` in ci.yml (DEB,
+      DMG, MSI on PRs and master; kept a week as artifacts).
+- [ ] Pin third-party actions by SHA.

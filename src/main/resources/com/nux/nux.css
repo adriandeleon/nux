@@ -12,6 +12,12 @@
 .status-warning  { -fx-background-color: -color-warning-emphasis; }
 .status-critical { -fx-background-color: -color-danger-emphasis; }
 
+/* While on battery: how long, and how long is left. */
+.on-battery-note {
+    -fx-text-fill: -color-warning-fg;
+    -fx-font-weight: bold;
+}
+
 .model-label {
     -fx-text-fill: -color-fg-muted;
     -fx-font-size: 1.1em;
@@ -23,6 +29,12 @@
 
 .detail-value {
     -fx-font-weight: bold;
+}
+
+/* A value that is really advice ("set a price in Settings"), not a reading. */
+.detail-hint {
+    -fx-font-weight: normal;
+    -fx-text-fill: -color-fg-muted;
 }
 
 /* Settings: why Save is disabled */
@@ -63,6 +75,14 @@
     -fx-font-weight: bold;
 }
 
+/* The dashboard scrolls inside the split pane but should look like it doesn't. */
+.dashboard-scroll,
+.dashboard-scroll > .viewport {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
 /* Multi-UPS overview strip */
 .overview-card {
     -fx-background-color: -color-bg-subtle;
@@ -78,6 +98,11 @@
     -fx-border-color: -color-accent-emphasis;
     -fx-border-width: 2;
 }
+
+/* Watched servers: a left edge in the state's colour, so trouble stands out at a glance. */
+.fleet-ok       { -fx-border-color: -color-border-default -color-border-default -color-border-default -color-success-emphasis; -fx-border-width: 1 1 1 4; }
+.fleet-warning  { -fx-border-color: -color-border-default -color-border-default -color-border-default -color-warning-emphasis; -fx-border-width: 1 1 1 4; }
+.fleet-critical { -fx-border-color: -color-border-default -color-border-default -color-border-default -color-danger-emphasis; -fx-border-width: 1 1 1 4; }
 
 .overview-selected {
     -fx-border-color: -color-accent-emphasis;

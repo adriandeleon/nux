@@ -1,5 +1,7 @@
 package com.nux.ui;
 
+import javafx.beans.value.ChangeListener;
+import javafx.beans.value.WeakChangeListener;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.layout.StackPane;
@@ -19,22 +21,22 @@ import com.nux.protocol.UpsStatus.Severity;
 public final class ArcGauge extends StackPane {
 
     private static final double SIZE = 170;
-    private static final Color OK = Color.web("#2da44e");
-    private static final Color WARN = Color.web("#d4a72c");
-    private static final Color BAD = Color.web("#cf222e");
-    private static final Color TRACK = Color.web("#6e7781", 0.25);
-    private static final Color TEXT = Color.web("#c9d1d9");
-    private static final Color MUTED = Color.web("#8b949e");
 
     private final Canvas canvas = new Canvas(SIZE, SIZE);
     private final String title;
     private final boolean highIsBad;
+    // The last reading, so a theme change can repaint it in the new colours.
+    private double lastFraction = Double.NaN;
+    private String lastText = "—";
+    private Severity lastSeverity;
+    private final ChangeListener<Theme.Palette> repaint = (o, was, now) -> draw(lastFraction, lastText, lastSeverity);
 
     public ArcGauge(String title, boolean highIsBad) {
         this.title = title;
         this.highIsBad = highIsBad;
         getChildren().add(canvas);
         setAccessibleRole(javafx.scene.AccessibleRole.TEXT);
+        Theme.paletteProperty().addListener(new WeakChangeListener<>(repaint));
         clear();
     }
 
@@ -53,6 +55,10 @@ public final class ArcGauge extends StackPane {
     }
 
     private void draw(double fraction, String valueText, Severity severity) {
+        lastFraction = fraction;
+        lastText = valueText;
+        lastSeverity = severity;
+        Theme.Palette p = Theme.palette();
         // A Canvas is invisible to screen readers; say what it shows.
         setAccessibleText(title + ": " + valueText);
         GraphicsContext g = canvas.getGraphicsContext2D();
@@ -65,39 +71,39 @@ public final class ArcGauge extends StackPane {
 
         g.setLineCap(StrokeLineCap.ROUND);
         g.setLineWidth(11);
-        g.setStroke(TRACK);
+        g.setStroke(p.track());
         g.strokeArc(pad, pad, d, d, startAngle, fullExtent, ArcType.OPEN);
 
         if (!Double.isNaN(fraction)) {
-            g.setStroke(severity != null ? colorFor(severity) : colorFor(fraction));
+            g.setStroke(severity != null ? colorFor(severity, p) : colorFor(fraction, p));
             g.strokeArc(pad, pad, d, d, startAngle, fullExtent * fraction, ArcType.OPEN);
         }
 
         g.setTextAlign(TextAlignment.CENTER);
-        g.setFill(TEXT);
+        g.setFill(p.text());
         g.setFont(Font.font("System", FontWeight.BOLD, 26));
         g.fillText(valueText, SIZE / 2, SIZE / 2 + 4);
-        g.setFill(MUTED);
+        g.setFill(p.muted());
         g.setFont(Font.font("System", FontWeight.NORMAL, 13));
         g.fillText(title, SIZE / 2, SIZE / 2 + 30);
     }
 
-    private static Color colorFor(Severity severity) {
+    private static Color colorFor(Severity severity, Theme.Palette p) {
         return switch (severity) {
-            case OK -> OK;
-            case WARNING -> WARN;
-            case CRITICAL -> BAD;
+            case OK -> p.ok();
+            case WARNING -> p.warn();
+            case CRITICAL -> p.bad();
         };
     }
 
-    private Color colorFor(double fraction) {
+    private Color colorFor(double fraction, Theme.Palette p) {
         double goodness = highIsBad ? 1 - fraction : fraction;
         if (goodness > 0.5) {
-            return OK;
+            return p.ok();
         }
         if (goodness > 0.2) {
-            return WARN;
+            return p.warn();
         }
-        return BAD;
+        return p.bad();
     }
 }

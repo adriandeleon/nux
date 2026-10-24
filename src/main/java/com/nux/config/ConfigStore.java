@@ -69,7 +69,10 @@ public final class ConfigStore {
                 p.getProperty("adv.uiLanguage", d.uiLanguage()),
                 Boolean.parseBoolean(p.getProperty("adv.updateCheck", "true")),
                 parseLong(p.getProperty("adv.lastUpdateCheckMs"), 0),
-                p.getProperty("adv.dismissedUpdateVersion", ""));
+                p.getProperty("adv.dismissedUpdateVersion", ""),
+                p.getProperty("adv.theme", Advanced.THEME_SYSTEM),
+                notifyRules(p),
+                Boolean.parseBoolean(p.getProperty("adv.watchProfiles", "false")));
 
         return new Config(
                 List.copyOf(profiles), lastHost, lastPort, lastUps, lastTls, tlsTrustAll, autoConnect, tray,
@@ -105,6 +108,9 @@ public final class ConfigStore {
         p.setProperty("adv.updateCheck", Boolean.toString(a.updateCheck()));
         p.setProperty("adv.lastUpdateCheckMs", Long.toString(a.lastUpdateCheckMs()));
         p.setProperty("adv.dismissedUpdateVersion", a.dismissedUpdateVersion());
+        p.setProperty("adv.theme", a.theme());
+        p.setProperty("adv.watchProfiles", Boolean.toString(a.watchProfiles()));
+        a.notifyRules().forEach((ups, rule) -> p.setProperty(NOTIFY_PREFIX + ups, rule.key()));
         StringJoiner names = new StringJoiner(",");
         for (Profile profile : c.profiles()) {
             names.add(profile.name());
@@ -143,6 +149,22 @@ public final class ConfigStore {
         } catch (IOException e) {
             Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING); // filesystem without atomic move
         }
+    }
+
+    private static final String NOTIFY_PREFIX = "adv.notify.";
+
+    /** Per-UPS notification rules, stored as {@code adv.notify.<host:port/ups>=critical|none}. */
+    private static java.util.Map<String, NotifyRule> notifyRules(Properties p) {
+        java.util.Map<String, NotifyRule> rules = new java.util.TreeMap<>();
+        for (String name : p.stringPropertyNames()) {
+            if (name.startsWith(NOTIFY_PREFIX) && name.length() > NOTIFY_PREFIX.length()) {
+                NotifyRule rule = NotifyRule.from(p.getProperty(name));
+                if (rule != NotifyRule.ALL) {
+                    rules.put(name.substring(NOTIFY_PREFIX.length()), rule);
+                }
+            }
+        }
+        return rules;
     }
 
     /**

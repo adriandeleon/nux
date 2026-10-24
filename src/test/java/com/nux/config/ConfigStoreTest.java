@@ -18,22 +18,22 @@ class ConfigStoreTest {
     @Test
     void enablingTheSelfTestArmsItsSchedule() {
         Advanced off = Advanced.defaults();
-        Advanced on = new Advanced(30, 0, 0, "$", true, 30, "03:00", 0, 0, Advanced.DEFAULT_TEST_COMMAND, true, "", true, 0, "");
+        Advanced on = new Advanced(30, 0, 0, "$", true, 30, "03:00", 0, 0, Advanced.DEFAULT_TEST_COMMAND, true, "", true, 0, "", Advanced.THEME_SYSTEM, java.util.Map.of(), false);
         assertEquals(1000L, on.armSelfTest(off, 1000).selfTestArmed());
     }
 
     @Test
     void anArmedScheduleKeepsItsAnchorUnlessItsTimeChanges() {
-        Advanced armed = new Advanced(30, 0, 0, "$", true, 30, "03:00", 0, 500, Advanced.DEFAULT_TEST_COMMAND, true, "", true, 0, "");
+        Advanced armed = new Advanced(30, 0, 0, "$", true, 30, "03:00", 0, 500, Advanced.DEFAULT_TEST_COMMAND, true, "", true, 0, "", Advanced.THEME_SYSTEM, java.util.Map.of(), false);
         // Saving Settings again (or changing the interval) must not push the first run back.
         assertEquals(500L, armed.armSelfTest(armed, 1000).selfTestArmed());
-        Advanced newTime = new Advanced(30, 0, 0, "$", true, 30, "04:00", 0, 500, Advanced.DEFAULT_TEST_COMMAND, true, "", true, 0, "");
+        Advanced newTime = new Advanced(30, 0, 0, "$", true, 30, "04:00", 0, 500, Advanced.DEFAULT_TEST_COMMAND, true, "", true, 0, "", Advanced.THEME_SYSTEM, java.util.Map.of(), false);
         assertEquals(1000L, newTime.armSelfTest(armed, 1000).selfTestArmed());
     }
 
     @Test
     void anEnabledScheduleFromBeforeArmingExistedIsArmedOnSight() {
-        Advanced legacy = new Advanced(30, 0, 0, "$", true, 30, "03:00", 0, 0, Advanced.DEFAULT_TEST_COMMAND, true, "", true, 0, "");
+        Advanced legacy = new Advanced(30, 0, 0, "$", true, 30, "03:00", 0, 0, Advanced.DEFAULT_TEST_COMMAND, true, "", true, 0, "", Advanced.THEME_SYSTEM, java.util.Map.of(), false);
         assertEquals(1000L, legacy.armSelfTest(legacy, 1000).selfTestArmed());
     }
 
@@ -50,7 +50,9 @@ class ConfigStoreTest {
                 .withAutoConnect(true)
                 .withTrayMetric("runtime")
                 .withAdvanced(
-                        new Advanced(14, 900, 0.28, "€", true, 7, "02:30", 1785700000L, 1785600000L, "test.battery.start.deep", false, "es", false, 1785700000000L, "0.3.0"))
+                        new Advanced(14, 900, 0.28, "€", true, 7, "02:30", 1785700000L, 1785600000L, "test.battery.start.deep", false, "es", false, 1785700000000L, "0.3.0", "light",
+                                java.util.Map.of("nas.local:3494/rack", NotifyRule.NONE, "localhost:3493/ups", NotifyRule.CRITICAL),
+                                true))
                 .withProfileSaved(new Profile("desk", "localhost", 3493, "cyberpower", false))
                 .withProfileSaved(new Profile("nas", "nas.local", 3494, "", true));
         Config parsed = ConfigStore.parse(ConfigStore.format(original));
@@ -166,5 +168,20 @@ class ConfigStoreTest {
         Properties p = new Properties();
         p.setProperty(key, value);
         return p;
+    }
+
+    @Test
+    void notifyRulesListOnlyTheExceptionsAndDefaultToAll() {
+        Advanced a = Advanced.defaults()
+                .withNotifyRule("nas:3493/lab", NotifyRule.NONE)
+                .withNotifyRule("nas:3493/desk", NotifyRule.CRITICAL);
+        assertEquals(NotifyRule.NONE, a.notifyRule("nas:3493/lab"));
+        assertEquals(NotifyRule.ALL, a.notifyRule("nas:3493/other"), "unset means notify");
+        Advanced back = a.withNotifyRule("nas:3493/lab", NotifyRule.ALL);
+        assertEquals(java.util.Set.of("nas:3493/desk"), back.notifyRules().keySet(), "ALL removes the entry");
+        assertTrue(NotifyRule.CRITICAL.allows(true));
+        assertFalse(NotifyRule.CRITICAL.allows(false));
+        assertFalse(NotifyRule.NONE.allows(true));
+        assertEquals(NotifyRule.ALL, NotifyRule.from("bogus"));
     }
 }

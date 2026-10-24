@@ -40,11 +40,10 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.stage.Stage;
 
-import atlantafx.base.theme.PrimerDark;
-
 import com.nux.analysis.BatteryHealth;
 import com.nux.analysis.EnergyEstimate;
 import com.nux.app.CommandRunner;
+import com.nux.app.FleetWatcher;
 import com.nux.app.ConnectionController;
 import com.nux.app.TrayController;
 import com.nux.autostart.Autostart;
@@ -53,14 +52,17 @@ import com.nux.config.Advanced;
 import com.nux.config.Config;
 import com.nux.config.ConfigHolder;
 import com.nux.config.ConfigStore;
+import com.nux.config.NotifyRule;
 import com.nux.config.Profile;
 import com.nux.i18n.Messages;
 import com.nux.instance.SingleInstance;
 import com.nux.protocol.UpsSnapshot;
+import com.nux.service.ContactTracker;
 import com.nux.service.Notifier;
 import com.nux.service.PollService;
 import com.nux.store.EventLog;
 import com.nux.store.HistoryStore;
+import com.nux.tray.TrayMenu;
 import com.nux.tray.TrayMetric;
 import com.nux.tray.Trays;
 import com.nux.update.ReleaseInfo;
@@ -74,8 +76,10 @@ import com.nux.ui.Dashboard;
 import com.nux.ui.DiscoveryWindow;
 import com.nux.ui.EventsWindow;
 import com.nux.ui.HistoryWindow;
+import com.nux.ui.Money;
 import com.nux.ui.Screenshot;
 import com.nux.ui.SettingsWindow;
+import com.nux.ui.Theme;
 import com.nux.ui.VariablesWindow;
 
 /** Nux — a simple, powerful NUT (Network UPS Tools) client. */
@@ -107,19 +111,20 @@ public final class App extends Application {
     private CommandPalette palette;
     private boolean startMinimized; // --minimized: come up in the tray, not on screen
     private boolean switchingUps; // guards the combo listener during programmatic repopulation
+    private List<String> commandNames = List.of(); // the live UPS's instant commands, for the tray
     // The tested, toolkit-free halves of the app; App adapts them to the JavaFX UI.
     private ConnectionController connection;
     private CommandRunner commands;
     private TrayController tray;
+    private FleetWatcher fleet;
     // Claimed in main(), before the toolkit exists; App only wires the window to it.
     private static SingleInstance singleInstance;
 
     @Override
     public void start(Stage stage) {
         this.stage = stage;
-        Application.setUserAgentStylesheet(new PrimerDark().getUserAgentStylesheet());
-
         configHolder = ConfigHolder.load(configPath);
+        Theme.apply(config().advanced().theme());
         // Only honour --minimized when there is a tray to minimise to, or the app would
         // start invisible with no way to reach it.
         startMinimized = getParameters().getRaw().contains("--minimized") && config().tray();
@@ -131,9 +136,16 @@ public final class App extends Application {
                 configHolder, poll, connection, events, new DialogPrompts(), Notifier::send, Instant::now,
                 ZoneId.systemDefault());
         connection.setAfterSnapshot(commands::maybeRunScheduledTest);
+        fleet = new FleetWatcher(
+                configHolder, PollService::new, history, events,
+                cards -> dashboard.setFleet(cards, profile -> connection.connectProfile(profile)),
+                Notifier::send, Instant::now);
         tray = new TrayController(
                 configHolder,
-                () -> Trays.create(this::raiseWindow, () -> Platform.runLater(Platform::exit)),
+                () -> Trays.create(
+                        this::raiseWindow,
+                        () -> Platform.runLater(Platform::exit),
+                        action -> Platform.runLater(() -> onTrayAction(action))),
                 work -> {
                     // Backend creation touches D-Bus/AWT and may block briefly.
                     Thread init = new Thread(work, "nux-tray-init");
@@ -186,7 +198,12 @@ public final class App extends Application {
                 settingsButton,
                 aboutButton);
 
-        SplitPane split = new SplitPane(dashboard, new TitledPane(tr("dashboard.allVariables"), buildVarTable()));
+        // Scrollable, so extra strips (watched servers, a multi-UPS overview) can't push the
+        // window taller than the screen; the dashboard scrolls instead when space runs out.
+        javafx.scene.control.ScrollPane dashboardScroll = new javafx.scene.control.ScrollPane(dashboard);
+        dashboardScroll.setFitToWidth(true);
+        dashboardScroll.getStyleClass().add("dashboard-scroll");
+        SplitPane split = new SplitPane(dashboardScroll, new TitledPane(tr("dashboard.allVariables"), buildVarTable()));
         split.setOrientation(Orientation.VERTICAL);
         split.setDividerPositions(0.68);
 
@@ -200,8 +217,25 @@ public final class App extends Application {
 
         Scene scene = new Scene(root, 960, 720);
         scene.getStylesheets().add(App.class.getResource("/com/nux/nux.css").toExternalForm());
-        scene.getAccelerators().put(KeyCombination.keyCombination("Shortcut+Shift+P"), palette::toggle);
-        scene.getAccelerators().put(KeyCombination.keyCombination("Shortcut+Comma"), this::openSettings);
+        // Keyboard access to the whole toolbar. Avoids Cmd+H / Cmd+M, which macOS
+        // reserves for Hide and Minimize; each button's tooltip shows its shortcut.
+        shortcut(scene, "Shortcut+Shift+P", palette::toggle, null);
+        shortcut(scene, "Shortcut+Comma", this::openSettings, settingsButton);
+        shortcut(scene, "Shortcut+K", () -> connection.toggle(), connectButton);
+        shortcut(scene, "Shortcut+U", () -> {
+            if (!upsCombo.isDisabled()) {
+                upsCombo.requestFocus();
+                upsCombo.show();
+            }
+        }, upsCombo);
+        shortcut(scene, "Shortcut+Shift+C", () -> {
+            if (!commandsButton.isDisabled()) {
+                commandsButton.show();
+            }
+        }, commandsButton);
+        shortcut(scene, "Shortcut+Shift+H", this::openHistory, historyButton);
+        shortcut(scene, "Shortcut+Shift+E", this::openEvents, eventsButton);
+        shortcut(scene, "F1", this::openAbout, aboutButton);
         stage.setScene(scene);
         // The gauges are fixed-size canvases (~620 px across); below this they clip.
         stage.setMinWidth(720);
@@ -256,6 +290,49 @@ public final class App extends Application {
                 });
     }
 
+    /**
+     * A tray quick action, on the FX thread. Commands bring the window up first, so the
+     * confirmation (risky commands warn and default to Cancel) appears where it's seen.
+     */
+    private void onTrayAction(String action) {
+        String ups = TrayMenu.upsOf(action);
+        String command = TrayMenu.commandOf(action);
+        if (TrayMenu.CONNECT.equals(action)) {
+            connection.toggle();
+        } else if (TrayMenu.SELF_TEST.equals(action)) {
+            showWindow();
+            commands.runSelfTestNow();
+        } else if (ups != null) {
+            upsCombo.setValue(ups); // the toolbar pick, which switches
+        } else if (command != null) {
+            showWindow();
+            commands.run(command);
+        }
+    }
+
+    /** Re-aligns the background watchers with the saved profiles and what's on screen. */
+    private void refreshFleet() {
+        if (fleet != null) {
+            fleet.refresh(connection.serverKey(), connection.selectedUps());
+        }
+    }
+
+    /** Rebuilds the tray's quick actions from the connection's state. */
+    private void refreshTrayMenu() {
+        tray.setMenu(TrayMenu.quickActions(
+                connection.isRunning(),
+                List.copyOf(upsCombo.getItems()),
+                connection.selectedUps(),
+                commandNames,
+                config().advanced().selfTestCommand()));
+    }
+
+    private void showWindow() {
+        stage.setIconified(false);
+        stage.show();
+        stage.toFront();
+    }
+
     /** Brings the window up from the tray, another instance's request, or a minimised start. */
     private void raiseWindow() {
         Platform.runLater(() -> {
@@ -286,9 +363,13 @@ public final class App extends Application {
             tray.dispose();
         }
         poll.shutdown();
+        if (fleet != null) {
+            fleet.shutdown();
+        }
         updateService.shutdown();
         history.shutdown();
         events.shutdown();
+        configHolder.close(); // flush a save queued just before quitting
         // Tray backends leave non-daemon threads behind (AWT EDT, D-Bus workers); with
         // implicit exit disabled, make process death unconditional once FX shuts down.
         System.exit(0);
@@ -318,6 +399,12 @@ public final class App extends Application {
         }
         registry.register("app.about", tr("command.about"), this::openAbout);
         registry.register("app.quit", tr("command.quit"), Platform::exit);
+        for (NotifyRule rule : NotifyRule.values()) {
+            registry.register(
+                    "notify.rule." + rule.key(),
+                    tr("command.notifyRule", tr("notify." + rule.key())),
+                    () -> setNotifyRule(rule));
+        }
         for (TrayMetric metric : TrayMetric.values()) {
             registry.register(
                     "tray.metric." + metric.key(), tr("command.trayMetric", metric.label()), () -> setTrayMetric(metric));
@@ -340,6 +427,24 @@ public final class App extends Application {
         tray.refresh();
     }
 
+    /**
+     * Binds {@code combo} on the scene and appends it, in the platform's own notation
+     * (Ctrl+K, ⌘K), to {@code control}'s tooltip so the shortcut can be discovered.
+     */
+    private static void shortcut(Scene scene, String combo, Runnable action, javafx.scene.control.Control control) {
+        KeyCombination keys = KeyCombination.keyCombination(combo);
+        scene.getAccelerators().put(keys, action);
+        if (control == null) {
+            return;
+        }
+        javafx.scene.control.Tooltip existing = control.getTooltip();
+        String label = existing != null ? existing.getText()
+                : control instanceof javafx.scene.control.Labeled l ? l.getText()
+                : control.getAccessibleText() != null ? control.getAccessibleText() : "";
+        control.setTooltip(new javafx.scene.control.Tooltip(
+                (label == null || label.isBlank() ? "" : label + "  ") + "(" + keys.getDisplayText() + ")"));
+    }
+
     private Config config() {
         return configHolder.get();
     }
@@ -354,6 +459,7 @@ public final class App extends Application {
             if (!running) {
                 upsCombo.setDisable(true);
             }
+            refreshTrayMenu();
         }
 
         @Override
@@ -366,6 +472,9 @@ public final class App extends Application {
                 switchingUps = false;
             }
             upsCombo.setDisable(names.isEmpty());
+            refreshNotifyRule();
+            refreshTrayMenu();
+            refreshFleet(); // the profile now on screen needn't be watched twice
         }
 
         @Override
@@ -377,11 +486,13 @@ public final class App extends Application {
             } finally {
                 switchingUps = false;
             }
+            refreshNotifyRule();
         }
 
         @Override
         public void showServer(String host, int port, boolean tls) {
             connLabel.setText(host + ":" + port + (tls ? "  (TLS)" : ""));
+            refreshFleet();
         }
 
         @Override
@@ -389,6 +500,7 @@ public final class App extends Application {
             dashboard.update(snapshot);
             varRows.setAll(snapshot.vars().entrySet());
             updateAnalysis(snapshot);
+            dashboard.setOnBattery(onBatteryText(snapshot));
             tray.show(snapshot);
         }
 
@@ -403,6 +515,8 @@ public final class App extends Application {
                 registry.register("ups.cmd." + command, tr("command.upsCommand", command), () -> commands.run(command));
             }
             commandsButton.setDisable(names.isEmpty());
+            commandNames = List.copyOf(names);
+            refreshTrayMenu();
         }
 
         @Override
@@ -419,6 +533,8 @@ public final class App extends Application {
             commandsButton.getItems().clear();
             commandsButton.setDisable(true);
             registry.removeByPrefix("ups.cmd.");
+            commandNames = List.of();
+            refreshTrayMenu();
         }
 
         @Override
@@ -437,6 +553,17 @@ public final class App extends Application {
             dashboard.showStopped();
             tray.showIdle(false);
         }
+    }
+
+    /** Shows the selected UPS's notification rule (and lets the user change it). */
+    private void refreshNotifyRule() {
+        dashboard.setNotifyRule(
+                connection.selectedUps() == null ? null : connection.notifyRule(), this::setNotifyRule);
+    }
+
+    private void setNotifyRule(NotifyRule rule) {
+        connection.setNotifyRule(rule);
+        refreshNotifyRule();
     }
 
     /** The dialogs commands need, on the main window. */
@@ -488,6 +615,28 @@ public final class App extends Application {
         }
     }
 
+    /**
+     * "On battery for 3m 20s · about 25 min left at 31% load", or null on mains. The
+     * runtime is the UPS's own estimate, which it makes at the load it is carrying now.
+     */
+    private String onBatteryText(UpsSnapshot snapshot) {
+        Instant since = connection.onBatterySince();
+        if (since == null) {
+            return null;
+        }
+        String elapsed = ContactTracker.format(java.time.Duration.between(since, Instant.now()));
+        String text = tr(connection.onBatterySinceExact() ? "dashboard.onBatteryFor" : "dashboard.onBatteryForAtLeast",
+                elapsed);
+        Optional<Double> runtime = snapshot.runtimeSeconds();
+        if (runtime.isPresent()) {
+            String left = String.format("%.0f min", runtime.get() / 60);
+            text += " · " + snapshot.loadPercent()
+                    .map(load -> tr("dashboard.runtimeLeftAtLoad", left, String.format("%.0f", load)))
+                    .orElse(tr("dashboard.runtimeLeft", left));
+        }
+        return text;
+    }
+
     /** Battery age/health and estimated power draw, derived from the latest snapshot. */
     private void updateAnalysis(UpsSnapshot snapshot) {
         LocalDate today = LocalDate.now();
@@ -503,9 +652,26 @@ public final class App extends Application {
             ageText = tr("dashboard.aging", ageText);
         }
         dashboard.setBatteryAge(ageText, health == BatteryHealth.Status.AGING || health == BatteryHealth.Status.REPLACE);
-        dashboard.setPower(EnergyEstimate.watts(snapshot, config().advanced().nominalWatts())
-                .map(w -> String.format("%.0f W", w))
-                .orElse("—"));
+        Optional<Double> watts = EnergyEstimate.watts(snapshot, config().advanced().nominalWatts());
+        dashboard.setPower(watts.map(w -> String.format("%.0f W", w)).orElse("—"));
+        Advanced adv = config().advanced();
+        if (watts.isEmpty()) {
+            dashboard.setCost("—", false);
+        } else if (adv.tariffPerKwh() <= 0) {
+            dashboard.setCost(tr("dashboard.costUnset"), true);
+        } else {
+            // The steady-state cost of drawing what the UPS reports right now.
+            double w = watts.get();
+            double price = adv.tariffPerKwh();
+            dashboard.setCost(
+                    tr(
+                            "dashboard.costRate",
+                            Money.format(adv.currency(), EnergyEstimate.costPer(EnergyEstimate.Period.HOUR, w, price)),
+                            Money.format(adv.currency(), EnergyEstimate.costPer(EnergyEstimate.Period.DAY, w, price)),
+                            Money.format(adv.currency(), EnergyEstimate.costPer(EnergyEstimate.Period.WEEK, w, price)),
+                            Money.format(adv.currency(), EnergyEstimate.costPer(EnergyEstimate.Period.MONTH, w, price))),
+                    false);
+        }
     }
 
     // --- Feature windows ------------------------------------------------------
@@ -644,8 +810,13 @@ public final class App extends Application {
             return edited.withAdvanced(edited.advanced().armSelfTest(c.advanced(), now));
         });
         history.setRetentionDays(config().advanced().historyDays());
+        if (!config().advanced().theme().equals(before.advanced().theme())) {
+            Theme.apply(config().advanced().theme()); // live: no restart for a theme
+        }
         connection.settingsSaved(before);
         tray.settingsSaved(before);
+        refreshTrayMenu(); // the self-test command may have changed
+        refreshFleet(); // watching may have been switched on or off
     }
 
     // --- Profiles -------------------------------------------------------------
@@ -669,6 +840,7 @@ public final class App extends Application {
                 MenuItem item = new MenuItem(profile.name());
                 item.setOnAction(e -> {
                     configHolder.update(c -> c.withProfileRemoved(profile.name()));
+                    refreshFleet();
                     rebuildProfilesMenu();
                     refreshProfileCommands();
                 });
@@ -702,6 +874,7 @@ public final class App extends Application {
         Config c = config();
         Profile profile = new Profile(name, c.lastHost(), c.lastPort(), ups, c.lastTls());
         configHolder.update(current -> current.withProfileSaved(profile));
+        refreshFleet();
         rebuildProfilesMenu();
         refreshProfileCommands();
     }

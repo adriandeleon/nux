@@ -56,7 +56,13 @@ palette** (`Ctrl/Cmd+Shift+P`), and a **selectable tray metric**
 (battery % / load % / runtime minutes).
 
 Beyond the live view it keeps **persistent history** (charts over the last
-hour to 30 days, with kWh and cost estimates), a **persistent event log**
+hour to 30 days, exportable as CSV; **energy and cost per hour, day, week or
+month**; and an **outage report** — every on-battery stretch, how long and how
+deep), shows what the current draw **costs per hour, day, week and month**, and
+while on battery **how long it has been and how much runtime is left**. It has
+a **light theme** (following the system by default), **tray quick actions**
+(connect, switch UPS, self-test, any instant command), **per-UPS notification
+rules**, can **watch several saved servers at once**, and keeps a **persistent event log**
 (exportable as CSV), **battery age/health** tracking, an editor for the UPS's
 **settable variables** (`upsrw`), **scheduled battery self-tests**, a
 **multi-UPS overview** for servers with more than one UPS, **command
@@ -66,6 +72,32 @@ request was accepted), and **LAN discovery** of NUT servers.
 It also **starts with your session** and keeps a **single instance** —
 launching Nux again raises the running window instead of starting a rival copy
 polling the same UPS.
+
+## What Nux doesn't do: shut your computer down
+
+Nux **watches and alerts** — it never shuts this computer (or any other) down
+when the battery runs low. That is the job of NUT's own **`upsmon`**, which
+runs as a system service, keeps working when nobody is logged in, and
+coordinates an orderly shutdown with `upsd` (including telling the UPS to cut
+power last). Run Nux *alongside* `upsmon`, not instead of it.
+
+A minimal `upsmon` for the machine the UPS is plugged into (NUT 2.8):
+
+```ini
+# /etc/nut/upsd.users
+[upsmon]
+    password = choose-a-password
+    upsmon primary
+
+# /etc/nut/upsmon.conf
+MONITOR cyberpower@localhost 1 upsmon choose-a-password primary
+SHUTDOWNCMD "/sbin/shutdown -h +0"
+```
+
+Other machines on the same UPS use `secondary` instead of `primary` and point
+`MONITOR` at the NUT server. See the NUT
+[user manual](https://networkupstools.org/docs/user-manual.chunked/index.html)
+for the details.
 
 ## Languages
 
@@ -230,6 +262,11 @@ server, which is why there's deliberately no UI checkbox for it.
 - [x] Start at login, and single-instance (a second launch raises the running
       window)
 - [x] Multi-language UI: English, Spanish, French, German, Portuguese, Italian
+- [x] Cost per hour/day/week/month, energy per period, an outage report and CSV
+      export in History
+- [x] Light theme (follows the system), tray quick actions, per-UPS notification
+      rules, keyboard shortcuts for the toolbar
+- [x] Watch several saved servers at once
 - [ ] Signed and notarised installers (needs an Apple Developer ID and a
       Windows code-signing certificate)
 - [ ] Package-manager distribution (Homebrew cask, winget, Flatpak/AppImage)

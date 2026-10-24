@@ -153,7 +153,7 @@ class CommandRunnerTest {
     /** Enables a daily 03:00 test, armed at 2026-08-02 10:00 UTC (so first due 08-03 03:00). */
     private void scheduleDailyTest(long armed) {
         app.config.update(c -> c.withAdvanced(new Advanced(
-                30, 0, 0, "$", true, 1, "03:00", 0, armed, Advanced.DEFAULT_TEST_COMMAND, true, "", true, 0, "")));
+                30, 0, 0, "$", true, 1, "03:00", 0, armed, Advanced.DEFAULT_TEST_COMMAND, true, "", true, 0, "", Advanced.THEME_SYSTEM, java.util.Map.of(), false)));
     }
 
     /** Caches credentials the way a user would: by running a command. */

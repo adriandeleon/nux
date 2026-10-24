@@ -11,6 +11,7 @@ import java.util.function.Supplier;
 import com.nux.AppInfo;
 import com.nux.config.Config;
 import com.nux.config.ConfigHolder;
+import com.nux.config.NotifyRule;
 import com.nux.config.Profile;
 import com.nux.protocol.StatusTransitions;
 import com.nux.protocol.UpsDevice;
@@ -86,6 +87,8 @@ public final class ConnectionController {
     private String selectedUps; // the UPS being polled, as the server confirmed it
     private UpsStatus lastStatus; // previous poll's status, for transition alerts
     private UpsSnapshot lastSnapshot; // latest live data; null whenever it would be stale
+    private Instant onBatterySince; // when this outage began (or was first seen); null on mains
+    private boolean onBatterySinceExact; // false when Nux connected mid-outage
     private Consumer<UpsSnapshot> afterSnapshot = snapshot -> {};
 
     public ConnectionController(
@@ -136,6 +139,33 @@ public final class ConnectionController {
         return lastSnapshot;
     }
 
+    /** When the current outage began, or null while on mains (or not connected). */
+    public Instant onBatterySince() {
+        return onBatterySince;
+    }
+
+    /**
+     * False when Nux only saw the outage already under way (it connected mid-outage), so
+     * {@link #onBatterySince} is a lower bound rather than the real start.
+     */
+    public boolean onBatterySinceExact() {
+        return onBatterySinceExact;
+    }
+
+    /** The notification rule of the selected UPS (ALL when none is selected). */
+    public NotifyRule notifyRule() {
+        return selectedUps == null ? NotifyRule.ALL : config.get().advanced().notifyRule(ruleKey(selectedUps));
+    }
+
+    /** Sets the selected UPS's notification rule. */
+    public void setNotifyRule(NotifyRule rule) {
+        if (selectedUps == null) {
+            return;
+        }
+        String key = ruleKey(selectedUps);
+        config.update(c -> c.withAdvanced(c.advanced().withNotifyRule(key, rule)));
+    }
+
     /** Which server a history file belongs to; UPS names repeat across servers. */
     public String serverKey() {
         return config.get().lastHost() + ":" + config.get().lastPort();
@@ -169,6 +199,7 @@ public final class ConnectionController {
         running = false;
         poll.stop();
         contact.reset();
+        onBatterySince = null;
         view.showRunning(false);
         clearLiveData();
         view.showStopped();
@@ -239,7 +270,7 @@ public final class ConnectionController {
         selectedUps = target;
         view.showUpsChoices(devices.stream().map(UpsDevice::name).toList(), target);
         contact.connected(clock.get()).ifPresent(outage -> {
-            notifyUser(AppInfo.NAME, tr("alert.contactRestored"), false);
+            notifyUser(upsLabel(), AppInfo.NAME, tr("alert.contactRestored"), false);
             events.append(UpsEvent.now(
                     upsLabel(), false, tr("event.contactRestored"), tr("event.downFor", ContactTracker.format(outage))));
         });
@@ -250,6 +281,7 @@ public final class ConnectionController {
 
     private void onSnapshot(UpsSnapshot snapshot) {
         lastSnapshot = snapshot;
+        trackOutage(snapshot.status());
         view.showSnapshot(snapshot);
         history.record(serverKey(), snapshot.ups(), HistorySample.of(snapshot));
 
@@ -259,7 +291,7 @@ public final class ConnectionController {
             // The alert carries catalogue keys; resolve them once, here at the edge.
             String title = tr(alert.titleKey());
             String body = tr(alert.bodyKey());
-            notifyUser(title, body, alert.critical());
+            notifyUser(snapshot.ups(), title, body, alert.critical());
             events.append(UpsEvent.now(snapshot.ups(), alert.critical(), title, body));
         }
         lastStatus = status;
@@ -270,16 +302,29 @@ public final class ConnectionController {
         view.showDisconnected(reason);
         clearLiveData();
         if (running && contact.failed(clock.get())) {
-            notifyUser(AppInfo.NAME, tr("alert.contactLost", reason), false);
+            notifyUser(upsLabel(), AppInfo.NAME, tr("alert.contactLost", reason), false);
             events.append(UpsEvent.now(upsLabel(), false, tr("event.contactLost"), reason));
         }
     }
 
     // --- Internals ------------------------------------------------------------
 
+    /** Starts the on-battery clock on the transition (exact) or the first sighting (a lower bound). */
+    private void trackOutage(UpsStatus status) {
+        if (!status.onBattery()) {
+            onBatterySince = null;
+        } else if (onBatterySince == null) {
+            onBatterySince = clock.get();
+            onBatterySinceExact = lastStatus != null; // seen on mains first, so this is the start
+        }
+    }
+
     /** Restart polling against a (possibly) different target: history and alert state reset. */
     private void startFresh(String ups) {
+        // A different target: its outage clock starts over. A mere connection blip keeps
+        // both (startFresh isn't called), so an outage keeps counting through it.
         lastStatus = null;
+        onBatterySince = null;
         contact.reset();
         clearLiveData();
         view.resetTrends();
@@ -305,9 +350,19 @@ public final class ConnectionController {
         return selectedUps != null ? selectedUps : config.get().lastHost();
     }
 
-    private void notifyUser(String title, String body, boolean critical) {
-        if (config.get().notifications()) {
+    /**
+     * Raises a desktop notification when notifications are on and {@code ups}'s own rule
+     * lets this event through. The event log has already recorded it either way.
+     */
+    private void notifyUser(String ups, String title, String body, boolean critical) {
+        Config c = config.get();
+        if (c.notifications() && c.advanced().notifyRule(ruleKey(ups)).allows(critical)) {
             alerts.notify(title, body, critical);
         }
+    }
+
+    /** Rules are per UPS per server: "ups" on two servers are two different machines. */
+    private String ruleKey(String ups) {
+        return serverKey() + "/" + ups;
     }
 }
