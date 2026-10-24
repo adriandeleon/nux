@@ -289,6 +289,7 @@ public final class App extends Application {
         updateService.shutdown();
         history.shutdown();
         events.shutdown();
+        configHolder.close(); // flush a save queued just before quitting
         // Tray backends leave non-daemon threads behind (AWT EDT, D-Bus workers); with
         // implicit exit disabled, make process death unconditional once FX shuts down.
         System.exit(0);
