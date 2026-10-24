@@ -119,7 +119,8 @@ public final class App extends Application {
     private String authUser; // session-cached upsd credentials for INSTCMD
     private String authPass;
     private NuxTray tray;
-    private SingleInstance singleInstance;
+    // Claimed in main(), before the toolkit exists; App only wires the window to it.
+    private static SingleInstance singleInstance;
     private TrayDisplay lastTrayDisplay;
     private String lastTrayTooltip;
 
@@ -268,18 +269,14 @@ public final class App extends Application {
     }
 
     /**
-     * Claims the single-instance lock so a later launch raises this window instead of
-     * starting a rival that would poll the same UPS twice. Failure is not fatal: the app
-     * runs regardless rather than leaving the user with nothing.
+     * Points the single-instance listener (claimed in {@link #main}) at this window, so a
+     * later launch raises it instead of starting a rival that would poll the same UPS
+     * twice. A request that arrived before the window existed is delivered now.
      */
     private void claimSingleInstance() {
-        if (!config.advanced().singleInstance()) {
-            return;
+        if (singleInstance != null) {
+            singleInstance.setOnActivate(this::raiseWindow);
         }
-        SingleInstance.acquire(instanceLockFile()).ifPresent(instance -> {
-            singleInstance = instance;
-            instance.setOnActivate(this::raiseWindow);
-        });
     }
 
     @Override
@@ -915,9 +912,9 @@ public final class App extends Application {
         return table;
     }
 
-    /** The lock file naming the running instance's port. */
-    private static Path instanceLockFile() {
-        return ConfigStore.DEFAULT_PATH.getParent().resolve("instance.port");
+    /** Where the single-instance lock and port files live. */
+    private static Path instanceDir() {
+        return ConfigStore.DEFAULT_PATH.getParent();
     }
 
     public static void main(String[] args) {
@@ -931,10 +928,15 @@ public final class App extends Application {
         Messages.init(language);
         Locale.setDefault(Locale.forLanguageTag(language));
 
-        // If Nux is already running, raise its window and stop before the toolkit starts.
-        if (startup.advanced().singleInstance()
-                && SingleInstance.signalExisting(instanceLockFile(), SingleInstance.HANDSHAKE_TIMEOUT_MS)) {
-            System.exit(0);
+        // If Nux is already running, raise its window and stop before the toolkit starts;
+        // otherwise claim the lock now, so a second quick launch can't also get through.
+        // Failure to claim is not fatal: run regardless rather than leave the user nothing.
+        if (startup.advanced().singleInstance()) {
+            switch (SingleInstance.claim(instanceDir(), SingleInstance.HANDSHAKE_TIMEOUT_MS)) {
+                case SingleInstance.Launch.AlreadyRunning _ -> System.exit(0);
+                case SingleInstance.Launch.Primary primary -> singleInstance = primary.instance();
+                case SingleInstance.Launch.Unguarded _ -> {}
+            }
         }
         launchApp(args);
     }
