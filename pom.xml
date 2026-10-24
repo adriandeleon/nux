@@ -158,7 +158,7 @@
             <properties>
                 <jpackage.type>APP_IMAGE</jpackage.type>
                 <!-- jpackage.appVersion is DERIVED from project.version by the antrun
-                     execution below (jpackage rejects a version containing -SNAPSHOT).
+                     execution below (jpackage accepts only a plain dotted number).
                      It is deliberately not declared here: a hardcoded default silently
                      goes stale the first time the project version changes. Passing
                      -Djpackage.appVersion=… still wins, which is what release CI does. -->
@@ -177,11 +177,11 @@
                         <version>3.1.0</version>
                         <executions>
                             <!-- Derive the jpackage app-version from project.version:
-                                 strip -SNAPSHOT, and on macOS bump a leading 0. to 1.
-                                 because jpackage refuses an app-version whose first
-                                 number is zero (it becomes CFBundleVersion). Ant
-                                 properties are immutable and Maven passes -D values in
-                                 first, so an explicit -Djpackage.appVersion always wins. -->
+                                 strip any suffix (-SNAPSHOT, -rc1), and on macOS bump a
+                                 leading 0. to 1. because jpackage refuses an app-version
+                                 whose first number is zero (it becomes CFBundleVersion).
+                                 Ant properties are immutable and Maven passes -D values
+                                 in first, so an explicit -Djpackage.appVersion always wins. -->
                             <execution>
                                 <id>derive-jpackage-version</id>
                                 <phase>initialize</phase>
@@ -195,7 +195,7 @@
                                             <string value="${project.version}"/>
                                             <filterchain>
                                                 <tokenfilter>
-                                                    <replaceregex pattern="-SNAPSHOT$" replace=""/>
+                                                    <replaceregex pattern="-.*$" replace=""/>
                                                 </tokenfilter>
                                             </filterchain>
                                         </loadresource>
