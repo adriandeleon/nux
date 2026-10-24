@@ -152,11 +152,21 @@ public final class Dashboard extends VBox {
         serial.setText(s.vars().getOrDefault("device.serial", s.vars().getOrDefault("ups.serial", "—")));
     }
 
+    /** Lost the server while meant to be connected: a fault, retried every tick. */
     public void showDisconnected(String reason) {
-        statusPill.setText(tr("dashboard.disconnected"));
+        showIdle(tr("dashboard.disconnected"), "status-critical", reason);
+    }
+
+    /** The user pressed Disconnect: nothing is wrong, so no alarm colour. */
+    public void showStopped() {
+        showIdle(tr("dashboard.stopped"), "status-neutral", "");
+    }
+
+    private void showIdle(String pillText, String pillStyle, String detail) {
+        statusPill.setText(pillText);
         statusPill.getStyleClass().removeAll("status-ok", "status-warning", "status-critical", "status-neutral");
-        statusPill.getStyleClass().add("status-critical");
-        modelLabel.setText(reason);
+        statusPill.getStyleClass().add(pillStyle);
+        modelLabel.setText(detail);
         charge.clear();
         load.clear();
         runtime.clear();

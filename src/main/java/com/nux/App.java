@@ -54,10 +54,12 @@ import com.nux.config.ConfigStore;
 import com.nux.config.Profile;
 import com.nux.i18n.Messages;
 import com.nux.instance.SingleInstance;
+import com.nux.protocol.NutException;
 import com.nux.protocol.StatusTransitions;
 import com.nux.protocol.UpsDevice;
 import com.nux.protocol.UpsSnapshot;
 import com.nux.protocol.UpsStatus;
+import com.nux.service.ContactTracker;
 import com.nux.service.Notifier;
 import com.nux.service.PollService;
 import com.nux.store.EventLog;
@@ -115,7 +117,7 @@ public final class App extends Application {
     private boolean switchingUps; // guards the combo listener during programmatic repopulation
     private UpsStatus lastStatus; // previous poll's status, for transition alerts
     private UpsSnapshot lastSnapshot; // latest data, for tray refresh on settings changes
-    private boolean commLost; // a "lost contact" notification was sent and not yet cleared
+    private final ContactTracker contact = new ContactTracker(); // when a lost server is worth announcing
     private String authUser; // session-cached upsd credentials for INSTCMD
     private String authPass;
     private NuxTray tray;
@@ -360,6 +362,7 @@ public final class App extends Application {
 
     private void connect() {
         running = true;
+        contact.reset();
         connectButton.setText(tr("toolbar.disconnect"));
         String ups = upsCombo.getValue() != null
                 ? upsCombo.getValue()
@@ -367,27 +370,47 @@ public final class App extends Application {
         poll.start(config.lastHost(), config.lastPort(), ups, config.tlsModeFor(config.lastTls()));
     }
 
+    /**
+     * Stops polling. Deliberately leaves {@code autoConnect} alone: that is the Settings
+     * checkbox's to decide, and writing it here (and back on every reconnect) meant
+     * unchecking it was undone by the next network blip.
+     */
     private void disconnect() {
         running = false;
         poll.stop();
+        contact.reset();
         connectButton.setText(tr("toolbar.connect"));
         upsCombo.setDisable(true);
-        commandsButton.setDisable(true);
-        dashboard.showDisconnected("Stopped");
-        lastSnapshot = null;
-        commLost = false;
+        clearLiveData();
+        dashboard.showStopped();
         refreshTray();
-        saveConfig(config.withAutoConnect(false));
     }
 
     /** Restart polling against a (possibly) different target: history and alert state reset. */
     private void startFresh(String ups) {
         lastStatus = null;
-        lastSnapshot = null;
-        commLost = false;
-        commandsButton.setDisable(true);
+        contact.reset();
+        clearLiveData();
         dashboard.resetHistory();
         poll.start(config.lastHost(), config.lastPort(), ups, config.tlsModeFor(config.lastTls()));
+    }
+
+    /**
+     * Drops everything that describes the UPS as it was: the variables table, the
+     * commands (menu and palette) and the snapshot the tray and analysis read. Kept, they
+     * read as live data and offered commands that could only fail.
+     */
+    private void clearLiveData() {
+        lastSnapshot = null;
+        varRows.clear();
+        commandsButton.getItems().clear();
+        commandsButton.setDisable(true);
+        registry.removeByPrefix("ups.cmd.");
+    }
+
+    /** The UPS commands can target right now, or null when there's no live connection. */
+    private String activeUps() {
+        return running && lastSnapshot != null ? lastSnapshot.ups() : null;
     }
 
     /**
@@ -404,12 +427,14 @@ public final class App extends Application {
             switchingUps = false;
         }
         upsCombo.setDisable(upsCombo.getItems().isEmpty());
-        if (commLost) {
+        contact.connected(Instant.now()).ifPresent(outage -> {
             notifyUser("Nux", tr("alert.contactRestored"), false);
-            commLost = false;
+            events.append(UpsEvent.now(
+                    upsLabel(), false, tr("event.contactRestored"), tr("event.downFor", ContactTracker.format(outage))));
+        });
+        if (target != null && !target.equals(config.lastUps())) {
+            saveConfig(config.withLast(config.lastHost(), config.lastPort(), target, config.lastTls()));
         }
-        saveConfig(config.withLast(config.lastHost(), config.lastPort(), upsCombo.getValue(), config.lastTls())
-                .withAutoConnect(true));
     }
 
     private void onSnapshot(UpsSnapshot snapshot) {
@@ -430,7 +455,7 @@ public final class App extends Application {
         }
         lastStatus = status;
         pushTray(TrayDisplay.of(snapshot, TrayMetric.from(config.trayMetric())), TrayDisplay.tooltip(snapshot));
-        maybeRunScheduledTest(snapshot.ups());
+        maybeRunScheduledTest(snapshot);
     }
 
     /** Battery age/health and estimated power draw, derived from the latest snapshot. */
@@ -458,7 +483,8 @@ public final class App extends Application {
      * design, so a schedule can only run once the user has authenticated at least once;
      * lastRun is stamped *before* the command so a failing test can't retry every tick.
      */
-    private void maybeRunScheduledTest(String ups) {
+    private void maybeRunScheduledTest(UpsSnapshot snapshot) {
+        String ups = snapshot.ups();
         Advanced adv = config.advanced();
         if (!adv.selfTestEnabled()) {
             return;
@@ -469,6 +495,12 @@ public final class App extends Application {
             return; // armed at "now", so it can't be due on this tick anyway
         }
         if (authPass == null || authUser == null) {
+            return;
+        }
+        // Never drain a battery the load may need: a due test waits (still due) until the
+        // UPS is back on mains and charged enough to have nothing to prove.
+        UpsStatus status = snapshot.status();
+        if (!status.online() || status.onBattery() || status.lowBattery()) {
             return;
         }
         if (!TestSchedule.isDue(
@@ -490,10 +522,7 @@ public final class App extends Application {
     }
 
     private void runSelfTestNow() {
-        String ups = upsCombo.getValue();
-        if (ups != null) {
-            runCommand(config.advanced().selfTestCommand());
-        }
+        runCommand(config.advanced().selfTestCommand());
     }
 
     private void onCommands(List<String> commands) {
@@ -510,13 +539,11 @@ public final class App extends Application {
 
     private void onDisconnected(String reason) {
         dashboard.showDisconnected(reason);
-        commandsButton.setDisable(true);
-        lastSnapshot = null;
+        clearLiveData();
         pushTray(TrayDisplay.disconnected(), tr("tray.disconnected"));
-        if (running && !commLost) {
-            commLost = true;
+        if (running && contact.failed(Instant.now())) {
             notifyUser("Nux", tr("alert.contactLost", reason), false);
-            events.append(UpsEvent.now(upsLabel(), false, "Lost server contact", reason));
+            events.append(UpsEvent.now(upsLabel(), false, tr("event.contactLost"), reason));
         }
     }
 
@@ -644,8 +671,9 @@ public final class App extends Application {
     }
 
     private void openVariables() {
-        String ups = upsCombo.getValue();
+        String ups = activeUps();
         if (ups == null) {
+            info(tr("error.notConnected"), tr("error.notConnectedBody"));
             return;
         }
         poll.loadRwVariables(ups, variables -> {
@@ -681,7 +709,7 @@ public final class App extends Application {
         }
         poll.setVariable(ups, authUser, authPass, name, value, (ok, message) -> {
             if (!ok) {
-                authPass = null; // could be bad credentials; re-prompt next time
+                forgetCredentialsIfRejected(message);
             } else {
                 events.append(UpsEvent.now(ups, false, tr("alert.variableChanged"), name + " = " + value));
             }
@@ -701,17 +729,12 @@ public final class App extends Application {
         SettingsWindow.show(stage, config, this::applySettings);
     }
 
-    private void applySettings(Config updated) {
+    private void applySettings(java.util.function.UnaryOperator<Config> edit) {
+        Config updated = edit.apply(config);
         boolean serverChanged = !updated.lastHost().equals(config.lastHost()) || updated.lastPort() != config.lastPort();
         boolean connectionChanged = serverChanged || updated.lastTls() != config.lastTls();
         boolean trayToggled = updated.tray() != config.tray();
-        // The dialog edits neither the last-run stamp nor the anchor; take the live values so
-        // a test that ran while it was open isn't rolled back, then re-arm if it was switched on.
-        Advanced live = config.advanced();
-        updated = updated.withAdvanced(updated.advanced()
-                .withSelfTestLastRun(live.selfTestLastRun())
-                .withSelfTestArmed(live.selfTestArmed())
-                .armSelfTest(live, Instant.now().getEpochSecond()));
+        updated = updated.withAdvanced(updated.advanced().armSelfTest(config.advanced(), Instant.now().getEpochSecond()));
         if (serverChanged) {
             // A UPS name belongs to the server it came from; never carry it to another one.
             updated = updated.withLast(updated.lastHost(), updated.lastPort(), "", updated.lastTls());
@@ -800,8 +823,9 @@ public final class App extends Application {
     // --- Instant commands -----------------------------------------------------
 
     private void runCommand(String command) {
-        String ups = upsCombo.getValue();
+        String ups = activeUps();
         if (ups == null) {
+            info(tr("error.notConnected"), tr("error.notConnectedBody"));
             return;
         }
         if (!CommandConfirmation.confirmed(CommandConfirmation.create(command, ups).showAndWait())) {
@@ -820,7 +844,7 @@ public final class App extends Application {
             if (ok) {
                 notifyUser("Nux", tr("alert.commandSent", command, ups), false);
             } else {
-                authPass = null; // could be bad credentials; re-prompt next time
+                forgetCredentialsIfRejected(message);
                 Alert error = new Alert(Alert.AlertType.ERROR);
                 error.setTitle(tr("dialog.commandFailed.title"));
                 error.setHeaderText(tr("dialog.commandFailed.header", command));
@@ -828,6 +852,16 @@ public final class App extends Application {
                 error.show();
             }
         });
+    }
+
+    /**
+     * Re-prompts next time only when upsd rejected the credentials themselves; a command
+     * the UPS doesn't support says nothing about the password.
+     */
+    private void forgetCredentialsIfRejected(String message) {
+        if (NutException.isAuthFailure(message)) {
+            authPass = null;
+        }
     }
 
     private static String friendlyCommandError(String message) {

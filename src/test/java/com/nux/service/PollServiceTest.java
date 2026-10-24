@@ -309,6 +309,52 @@ class PollServiceTest {
     }
 
     @Test
+    void aCommandTheUpsRefusesKeepsTheConnectionAndItsLogin() throws Exception {
+        // CMD-NOT-SUPPORTED says nothing about the connection or the password: dropping
+        // either forced a reconnect and a needless credentials prompt.
+        scriptOneUps();
+        server.on("USERNAME nuxuser", "OK")
+                .on("PASSWORD s3cret", "OK")
+                .on("SET TRACKING ON", "ERR FEATURE-NOT-CONFIGURED")
+                .on("INSTCMD cp load.on", "ERR CMD-NOT-SUPPORTED")
+                .on("INSTCMD cp beeper.toggle", "OK");
+        BlockingQueue<UpsSnapshot> snapshots = new ArrayBlockingQueue<>(16);
+        poll.setOnSnapshot(snapshots::offer);
+        start();
+        take(snapshots);
+
+        BlockingQueue<String> results = new ArrayBlockingQueue<>(4);
+        poll.runInstCmd("cp", "nuxuser", "s3cret", "load.on", (ok, message) -> results.offer(ok + ":" + message));
+        assertEquals("false:CMD-NOT-SUPPORTED", take(results));
+        poll.runInstCmd("cp", "nuxuser", "s3cret", "beeper.toggle", (ok, message) -> results.offer(ok + ":" + message));
+        assertEquals("true:OK", take(results));
+        assertEquals(1, count(server.received(), "USERNAME nuxuser"), "logged in once, on one connection");
+    }
+
+    @Test
+    void anAccessDeniedCommandDropsTheLoginSoAnotherUserCanTry() throws Exception {
+        scriptOneUps();
+        server.on("USERNAME viewer", "OK")
+                .on("PASSWORD pw", "OK")
+                .on("SET TRACKING ON", "ERR FEATURE-NOT-CONFIGURED")
+                .on("INSTCMD cp beeper.toggle", "ERR ACCESS-DENIED")
+                .on("USERNAME admin", "OK")
+                .on("PASSWORD pw2", "OK");
+        BlockingQueue<UpsSnapshot> snapshots = new ArrayBlockingQueue<>(16);
+        poll.setOnSnapshot(snapshots::offer);
+        start();
+        take(snapshots);
+
+        BlockingQueue<String> results = new ArrayBlockingQueue<>(4);
+        poll.runInstCmd("cp", "viewer", "pw", "beeper.toggle", (ok, message) -> results.offer(ok + ":" + message));
+        assertEquals("false:ACCESS-DENIED", take(results));
+        take(snapshots); // the next tick reconnects
+        poll.runInstCmd("cp", "admin", "pw2", "beeper.toggle", (ok, message) -> results.offer(ok + ":" + message));
+        // Not "Already authenticated as viewer": the second user gets a clean connection.
+        assertFalse(take(results).contains("Already authenticated"));
+    }
+
+    @Test
     void restartingReplacesThePollTaskInsteadOfStackingAnother() throws Exception {
         // Each UPS switch calls start(); a superseded task used to stay scheduled forever,
         // waking every 5 s as a no-op — one more per switch for the life of the app.

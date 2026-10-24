@@ -78,8 +78,26 @@ class ConfigStoreTest {
         assertEquals(3493, c.lastPort());
         assertFalse(c.lastTls());
         assertFalse(c.tlsTrustAll());
-        assertFalse(c.autoConnect());
+        // On by default: the Settings checkbox is now its only writer, so a fresh install
+        // has to start from "reconnect on launch" rather than earning it on first connect.
+        assertTrue(c.autoConnect());
         assertEquals(List.of(), c.profiles());
+    }
+
+    @Test
+    void parseClampsHandEditedNumbersIntoRange() {
+        Properties p = new Properties();
+        p.setProperty("lastPort", "99999");
+        p.setProperty("profiles", "x");
+        p.setProperty("profile.x.host", "h");
+        p.setProperty("profile.x.port", "0");
+        p.setProperty("adv.historyDays", "0"); // would make prune delete everything
+        p.setProperty("adv.selfTestIntervalDays", "-3");
+        Config c = ConfigStore.parse(p);
+        assertEquals(3493, c.lastPort());
+        assertEquals(3493, c.profiles().getFirst().port());
+        assertEquals(1, c.advanced().historyDays());
+        assertEquals(1, c.advanced().selfTestIntervalDays());
     }
 
     @Test

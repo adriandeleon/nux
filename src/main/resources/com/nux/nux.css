@@ -25,6 +25,11 @@
     -fx-font-weight: bold;
 }
 
+/* Settings: why Save is disabled */
+.settings-problem {
+    -fx-text-fill: -color-danger-fg;
+}
+
 /* Command palette */
 .palette-backdrop {
     -fx-background-color: rgba(0, 0, 0, 0.45);

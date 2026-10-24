@@ -2,8 +2,18 @@ package com.nux.ui;
 
 import static com.nux.i18n.Messages.tr;
 
+import java.time.Instant;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
+import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
 
+import javafx.application.Platform;
+import javafx.beans.binding.Bindings;
+import javafx.beans.binding.BooleanBinding;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -29,35 +39,61 @@ import javafx.util.StringConverter;
 import com.nux.analysis.TestSchedule;
 import com.nux.autostart.Autostart;
 import com.nux.config.Advanced;
-import com.nux.i18n.Messages;
 import com.nux.config.Config;
-import com.nux.protocol.NutClient;
+import com.nux.i18n.Messages;
 import com.nux.tray.TrayMetric;
 
 /**
- * The settings dialog: connection (moved off the toolbar), tray, power/energy, and
- * automation. Save hands a whole new {@link Config} to the caller, which diffs it and
- * re-applies only what changed.
+ * The settings dialog: general, connection, tray, power/energy, and automation.
+ *
+ * <p>Save hands the caller an <em>edit</em> — a function applied to the configuration
+ * as it is at that moment — rather than a whole Config rebuilt from the copy taken when
+ * the dialog opened. The dialog stays open while polling goes on, and a rebuilt copy
+ * silently rolled back anything written meanwhile (the UPS picked on reconnect, a
+ * self-test's last-run stamp, the update-check throttle).
  */
 public final class SettingsWindow {
 
+    /** The "follow the system" language choice, persisted as an empty preference. */
+    private static final String SYSTEM_LANGUAGE = "";
+
     private SettingsWindow() {}
 
-    /** Maps a display name back to its ISO code; unknown names fall back to English. */
-    private static String languageCode(String displayName) {
-        return Messages.LANGUAGES.entrySet().stream()
-                .filter(e -> e.getValue().equals(displayName))
-                .map(java.util.Map.Entry::getKey)
-                .findFirst()
-                .orElse("en");
-    }
-
-    public static void show(Window owner, Config current, Consumer<Config> onSave) {
+    public static void show(Window owner, Config current, Consumer<UnaryOperator<Config>> onSave) {
         Advanced adv = current.advanced();
+
+        // --- General
+        ComboBox<String> language = new ComboBox<>();
+        Map<String, String> languages = new java.util.LinkedHashMap<>();
+        languages.put(SYSTEM_LANGUAGE, tr("settings.languageSystem"));
+        languages.putAll(Messages.languageChoices());
+        language.getItems().setAll(languages.keySet());
+        language.setConverter(converter(languages::get, name -> SYSTEM_LANGUAGE));
+        language.setValue(languages.containsKey(adv.uiLanguage()) ? adv.uiLanguage() : SYSTEM_LANGUAGE);
+        CheckBox notifications = new CheckBox(tr("settings.notifications"));
+        notifications.setSelected(current.notifications());
+        CheckBox singleInstance = new CheckBox(tr("settings.singleInstance"));
+        singleInstance.setSelected(adv.singleInstance());
+        CheckBox updateCheck = new CheckBox(tr("settings.updateCheck"));
+        updateCheck.setSelected(adv.updateCheck());
+        CheckBox autostart = new CheckBox(tr("settings.autostart"));
+
+        GridPane general = grid();
+        general.addRow(0, new Label(tr("settings.language")), language);
+        general.add(note(tr("settings.languageNote")), 0, 1, 2, 1);
+        general.add(notifications, 0, 2, 2, 1);
+        general.add(autostart, 0, 3, 2, 1);
+        general.add(note(tr("settings.autostartNote")), 0, 4, 2, 1);
+        general.add(singleInstance, 0, 5, 2, 1);
+        general.add(note(tr("settings.singleInstanceNote")), 0, 6, 2, 1);
+        general.add(updateCheck, 0, 7, 2, 1);
+        general.add(note(tr("settings.updateCheckNote")), 0, 8, 2, 1);
 
         // --- Connection
         TextField host = new TextField(current.lastHost());
+        host.setId("settings-host");
         TextField port = new TextField(Integer.toString(current.lastPort()));
+        port.setId("settings-port");
         port.setPrefColumnCount(5);
         CheckBox tls = new CheckBox(tr("settings.tls"));
         tls.setSelected(current.lastTls());
@@ -71,7 +107,7 @@ public final class SettingsWindow {
         connection.add(tls, 0, 3, 2, 1);
         connection.add(autoConnect, 0, 4, 2, 1);
 
-        // --- Tray + notifications
+        // --- Tray
         CheckBox tray = new CheckBox(tr("settings.tray"));
         tray.setSelected(current.tray());
         CheckBox closeToTray = new CheckBox(tr("settings.closeToTray"));
@@ -82,79 +118,72 @@ public final class SettingsWindow {
         metric.setConverter(converter(TrayMetric::label, TrayMetric::from));
         closeToTray.disableProperty().bind(tray.selectedProperty().not());
         metric.disableProperty().bind(tray.selectedProperty().not());
-        CheckBox notifications = new CheckBox(tr("settings.notifications"));
-        notifications.setSelected(current.notifications());
-        CheckBox singleInstance = new CheckBox(tr("settings.singleInstance"));
-        singleInstance.setSelected(adv.singleInstance());
-
-        // The language applies on the next launch: catalogues are loaded once at startup
-        // and half the UI is already built by the time this dialog opens.
-        CheckBox updateCheck = new CheckBox(tr("settings.updateCheck"));
-        updateCheck.setSelected(adv.updateCheck());
-
-        ComboBox<String> language = new ComboBox<>();
-        language.getItems().addAll(Messages.languageChoices().values());
-        language.setValue(Messages.languageChoices()
-                .getOrDefault(Messages.activeLanguage(), Messages.LANGUAGES.get("en")));
+        GridPane trayGrid = grid();
+        trayGrid.add(tray, 0, 0, 2, 1);
+        trayGrid.add(closeToTray, 0, 1, 2, 1);
+        trayGrid.addRow(2, new Label(tr("settings.trayShows")), metric);
 
         // Start-at-login is OS state, not app config: read it back from the OS so the two
-        // can never disagree, and apply it immediately rather than on Save.
-        CheckBox autostart = new CheckBox(tr("settings.autostart"));
-        autostart.setSelected(Autostart.isEnabled());
+        // can never disagree, and apply it immediately rather than on Save. Both directions
+        // can spawn reg.exe/launchctl, so they run off the FX thread.
         if (Autostart.isSupported()) {
+            autostart.setDisable(true);
+            boolean[] applying = {true}; // suppress the listener while we set the OS truth
             autostart.selectedProperty().addListener((o, was, now) -> {
-                boolean minimized = tray.isSelected();
-                if (!Autostart.setEnabled(now, minimized)) {
-                    autostart.setSelected(Autostart.isEnabled()); // revert to the truth
+                if (applying[0]) {
+                    return;
                 }
+                autostart.setDisable(true);
+                boolean minimized = tray.isSelected();
+                background(() -> {
+                    boolean ok = Autostart.setEnabled(now, minimized);
+                    boolean truth = ok ? now : Autostart.isEnabled();
+                    Platform.runLater(() -> {
+                        applying[0] = true;
+                        autostart.setSelected(truth); // revert to the truth on failure
+                        applying[0] = false;
+                        autostart.setDisable(false);
+                    });
+                });
+            });
+            background(() -> {
+                boolean enabled = Autostart.isEnabled();
+                Platform.runLater(() -> {
+                    autostart.setSelected(enabled);
+                    applying[0] = false;
+                    autostart.setDisable(false);
+                });
             });
         } else {
             autostart.setDisable(true);
             autostart.setTooltip(new Tooltip(Autostart.unavailableReason()));
         }
 
-        GridPane trayGrid = grid();
-        trayGrid.addRow(0, new Label(tr("settings.language")), language);
-        trayGrid.add(note(tr("settings.languageNote")), 0, 1, 2, 1);
-        trayGrid.add(tray, 0, 2, 2, 1);
-        trayGrid.add(closeToTray, 0, 3, 2, 1);
-        trayGrid.addRow(4, new Label(tr("settings.trayShows")), metric);
-        trayGrid.add(notifications, 0, 5, 2, 1);
-        trayGrid.add(autostart, 0, 6, 2, 1);
-        trayGrid.add(singleInstance, 0, 8, 2, 1);
-        trayGrid.add(updateCheck, 0, 10, 2, 1);
-        trayGrid.add(note(tr("settings.updateCheckNote")), 0, 11, 2, 1);
-        trayGrid.add(
-                note("Off allows several copies at once — useful for watching two servers side by side."),
-                0, 9, 2, 1);
-        trayGrid.add(
-                note(tr("settings.autostartNote")),
-                0, 7, 2, 1);
-
         // --- Power & history
         TextField watts = new TextField(adv.nominalWatts() > 0 ? trim(adv.nominalWatts()) : "");
-        watts.setPromptText("auto from UPS");
+        watts.setPromptText(tr("settings.wattsPrompt"));
         watts.setPrefColumnCount(8);
         TextField tariff = new TextField(adv.tariffPerKwh() > 0 ? trim(adv.tariffPerKwh()) : "");
-        tariff.setPromptText("0 = off");
+        tariff.setPromptText(tr("settings.tariffPrompt"));
         tariff.setPrefColumnCount(8);
         TextField currency = new TextField(adv.currency());
         currency.setPrefColumnCount(3);
-        Spinner<Integer> historyDays = new Spinner<>(1, 365, adv.historyDays());
+        Spinner<Integer> historyDays = new Spinner<>(1, 365, Math.clamp(adv.historyDays(), 1, 365));
         historyDays.setPrefWidth(90);
         GridPane power = grid();
-        power.addRow(0, new Label("UPS output rating"), withSuffix(watts, "W"));
-        power.addRow(1, new Label("Electricity price"), withSuffix(tariff, "per kWh"));
-        power.addRow(2, new Label("Currency symbol"), currency);
-        power.addRow(3, new Label("Keep history for"), withSuffix(historyDays, "days"));
-        power.add(note("Load is usually reported as a percentage, so power and cost are estimates."), 0, 4, 2, 1);
+        power.addRow(0, new Label(tr("settings.nominalWatts")), watts);
+        power.addRow(1, new Label(tr("settings.tariff")), tariff);
+        power.addRow(2, new Label(tr("settings.currency")), currency);
+        power.addRow(3, new Label(tr("settings.historyDays")), historyDays);
+        power.add(note(tr("settings.powerNote")), 0, 4, 2, 1);
 
         // --- Automation
         CheckBox selfTest = new CheckBox(tr("settings.selfTest"));
         selfTest.setSelected(adv.selfTestEnabled());
-        Spinner<Integer> interval = new Spinner<>(1, 365, adv.selfTestIntervalDays());
+        Spinner<Integer> interval = new Spinner<>(1, 365, Math.clamp(adv.selfTestIntervalDays(), 1, 365));
         interval.setPrefWidth(90);
         TextField time = new TextField(adv.selfTestTime());
+        time.setId("settings-time");
         time.setPrefColumnCount(6);
         TextField command = new TextField(adv.selfTestCommand());
         interval.disableProperty().bind(selfTest.selectedProperty().not());
@@ -162,24 +191,50 @@ public final class SettingsWindow {
         command.disableProperty().bind(selfTest.selectedProperty().not());
         GridPane automation = grid();
         automation.add(selfTest, 0, 0, 2, 1);
-        automation.addRow(1, new Label("Every"), withSuffix(interval, "days"));
-        automation.addRow(2, new Label("At"), withSuffix(time, "HH:mm"));
+        automation.addRow(1, new Label(tr("settings.selfTestInterval")), interval);
+        automation.addRow(2, new Label(tr("settings.selfTestTime")), time);
         automation.addRow(3, new Label(tr("settings.selfTestCommand")), command);
-        automation.add(
-                note("Tests run only while Nux is open and after you have entered UPS credentials this session — "
-                        + "credentials are never stored on disk."),
-                0, 4, 2, 1);
-        automation.add(
-                new Label("Last run: "
-                        + (adv.selfTestLastRun() > 0
-                                ? TestSchedule.describeNext(java.util.Optional.of(
-                                        java.time.Instant.ofEpochSecond(adv.selfTestLastRun())))
-                                : "never")),
+        automation.add(note(tr("settings.selfTestNote")), 0, 4, 2, 1);
+        automation.add(new Label(tr(
+                        "settings.lastRun",
+                        adv.selfTestLastRun() > 0
+                                ? TestSchedule.describeNext(Optional.of(Instant.ofEpochSecond(adv.selfTestLastRun())))
+                                : tr("settings.never"))),
                 0, 5, 2, 1);
+        if (adv.selfTestEnabled()) {
+            automation.add(new Label(tr(
+                            "settings.nextRun",
+                            TestSchedule.describeNext(TestSchedule.nextRun(
+                                    adv.selfTestLastRun(),
+                                    adv.selfTestArmed(),
+                                    adv.selfTestIntervalDays(),
+                                    TestSchedule.parseTime(adv.selfTestTime()),
+                                    ZoneId.systemDefault())))),
+                    0, 6, 2, 1);
+        }
 
         TabPane tabs = new TabPane(
-                tab(tr("settings.tab.connection"), connection), tab(tr("settings.tab.tray"), trayGrid), tab(tr("settings.tab.power"), power), tab(tr("settings.tab.automation"), automation));
+                tab(tr("settings.tab.general"), general),
+                tab(tr("settings.tab.connection"), connection),
+                tab(tr("settings.tab.tray"), trayGrid),
+                tab(tr("settings.tab.power"), power),
+                tab(tr("settings.tab.automation"), automation));
         tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+
+        // --- Validation: Save stays disabled, and says why, until every field is usable.
+        Label problem = new Label();
+        problem.getStyleClass().add("settings-problem");
+        problem.setWrapText(true);
+        BooleanBinding hostBad = Bindings.createBooleanBinding(() -> host.getText().isBlank(), host.textProperty());
+        BooleanBinding portBad = Bindings.createBooleanBinding(() -> port(port.getText()).isEmpty(), port.textProperty());
+        BooleanBinding timeBad = Bindings.createBooleanBinding(
+                () -> selfTest.isSelected() && !validTime(time.getText()), time.textProperty(), selfTest.selectedProperty());
+        problem.textProperty().bind(Bindings.when(hostBad).then(tr("settings.invalidHost"))
+                .otherwise(Bindings.when(portBad).then(tr("settings.invalidPort"))
+                        .otherwise(Bindings.when(timeBad).then(tr("settings.invalidTime")).otherwise(""))));
+        markInvalid(host, hostBad);
+        markInvalid(port, portBad);
+        markInvalid(time, timeBad);
 
         Stage stage = new Stage();
         discover.setOnAction(e -> DiscoveryWindow.show(stage, (foundHost, foundPort) -> {
@@ -187,44 +242,57 @@ public final class SettingsWindow {
             port.setText(Integer.toString(foundPort));
         }));
         Button cancel = new Button(tr("settings.cancel"));
+        cancel.setCancelButton(true);
         cancel.setOnAction(e -> stage.close());
         Button save = new Button(tr("settings.save"));
+        save.setId("settings-save");
         save.setDefaultButton(true);
+        save.disableProperty().bind(hostBad.or(portBad).or(timeBad));
         save.setOnAction(e -> {
-            Advanced updatedAdv = new Advanced(
-                    historyDays.getValue(),
-                    parseDouble(watts.getText()),
-                    parseDouble(tariff.getText()),
-                    currency.getText().isBlank() ? "$" : currency.getText().trim(),
-                    selfTest.isSelected(),
-                    interval.getValue(),
-                    time.getText().trim(),
-                    adv.selfTestLastRun(),
-                    adv.selfTestArmed(),
-                    command.getText().isBlank() ? Advanced.DEFAULT_TEST_COMMAND : command.getText().trim(),
-                    singleInstance.isSelected(),
-                    languageCode(language.getValue()),
-                    updateCheck.isSelected(),
-                    adv.lastUpdateCheckMs(),
-                    adv.dismissedUpdateVersion());
-            onSave.accept(new Config(
-                    current.profiles(),
-                    host.getText().trim(),
-                    parsePort(port.getText()),
-                    current.lastUps(),
-                    tls.isSelected(),
-                    current.tlsTrustAll(),
-                    autoConnect.isSelected(),
-                    tray.isSelected(),
-                    closeToTray.isSelected(),
-                    metric.getValue().key(),
-                    notifications.isSelected(),
-                    updatedAdv));
+            String newHost = host.getText().trim();
+            int newPort = port(port.getText()).orElseThrow();
+            boolean newTls = tls.isSelected();
+            boolean newAuto = autoConnect.isSelected();
+            boolean newTray = tray.isSelected();
+            boolean newClose = closeToTray.isSelected();
+            String newMetric = metric.getValue().key();
+            boolean newNotify = notifications.isSelected();
+            int days = historyDays.getValue();
+            double newWatts = parseDouble(watts.getText());
+            double newTariff = parseDouble(tariff.getText());
+            String newCurrency = currency.getText().isBlank() ? "$" : currency.getText().trim();
+            boolean testOn = selfTest.isSelected();
+            int testEvery = interval.getValue();
+            String testAt = time.getText().trim();
+            String testCommand = command.getText().isBlank() ? Advanced.DEFAULT_TEST_COMMAND : command.getText().trim();
+            boolean single = singleInstance.isSelected();
+            String lang = language.getValue();
+            boolean checkUpdates = updateCheck.isSelected();
+            // Only what this dialog edits; everything else comes from the live config.
+            onSave.accept(live -> {
+                Advanced a = live.advanced();
+                return new Config(
+                        live.profiles(),
+                        newHost,
+                        newPort,
+                        live.lastUps(),
+                        newTls,
+                        live.tlsTrustAll(),
+                        newAuto,
+                        newTray,
+                        newClose,
+                        newMetric,
+                        newNotify,
+                        new Advanced(
+                                days, newWatts, newTariff, newCurrency, testOn, testEvery, testAt,
+                                a.selfTestLastRun(), a.selfTestArmed(), testCommand, single, lang,
+                                checkUpdates, a.lastUpdateCheckMs(), a.dismissedUpdateVersion()));
+            });
             stage.close();
         });
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox buttons = new HBox(10, spacer, cancel, save);
+        HBox buttons = new HBox(10, problem, spacer, cancel, save);
         buttons.setAlignment(Pos.CENTER_RIGHT);
 
         VBox root = new VBox(12, tabs, buttons);
@@ -233,11 +301,45 @@ public final class SettingsWindow {
 
         stage.initOwner(owner);
         stage.initModality(Modality.WINDOW_MODAL);
-        stage.setTitle("Nux Settings");
-        Scene scene = new Scene(root, 500, 430);
+        stage.setTitle(tr("settings.title"));
+        Scene scene = new Scene(root, 560, 470);
         scene.getStylesheets().add(SettingsWindow.class.getResource("/com/nux/nux.css").toExternalForm());
         stage.setScene(scene);
+        stage.setMinWidth(480);
+        stage.setMinHeight(420);
         stage.show();
+    }
+
+    /** A TCP port in range, or empty — never a silent fallback the user didn't type. */
+    static Optional<Integer> port(String text) {
+        try {
+            int value = Integer.parseInt(text.trim());
+            return value >= 1 && value <= 65535 ? Optional.of(value) : Optional.empty();
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
+    }
+
+    static boolean validTime(String text) {
+        try {
+            LocalTime.parse(text.trim());
+            return true;
+        } catch (DateTimeParseException e) {
+            return false;
+        }
+    }
+
+    private static void markInvalid(javafx.scene.Node field, BooleanBinding bad) {
+        bad.addListener((o, was, now) -> field.pseudoClassStateChanged(INVALID, now));
+        field.pseudoClassStateChanged(INVALID, bad.get());
+    }
+
+    private static final javafx.css.PseudoClass INVALID = javafx.css.PseudoClass.getPseudoClass("danger");
+
+    private static void background(Runnable work) {
+        Thread t = new Thread(work, "nux-autostart");
+        t.setDaemon(true);
+        t.start();
     }
 
     private static Tab tab(String title, Region content) {
@@ -252,19 +354,11 @@ public final class SettingsWindow {
         return grid;
     }
 
-    private static HBox withSuffix(Region control, String suffix) {
-        Label label = new Label(suffix);
-        label.getStyleClass().add("detail-name");
-        HBox box = new HBox(6, control, label);
-        box.setAlignment(Pos.CENTER_LEFT);
-        return box;
-    }
-
     private static Label note(String text) {
         Label label = new Label(text);
         label.getStyleClass().add("detail-name");
         label.setWrapText(true);
-        label.setMaxWidth(400);
+        label.setMaxWidth(460);
         return label;
     }
 
@@ -292,14 +386,6 @@ public final class SettingsWindow {
             return Math.max(0, Double.parseDouble(text.trim()));
         } catch (NumberFormatException e) {
             return 0;
-        }
-    }
-
-    private static int parsePort(String text) {
-        try {
-            return Integer.parseInt(text.trim());
-        } catch (NumberFormatException e) {
-            return NutClient.DEFAULT_PORT;
         }
     }
 }

@@ -172,7 +172,7 @@ public final class PollService {
             if (gen == generation && client != null) {
                 try {
                     vars = client.listRw(ups);
-                } catch (IOException e) {
+                } catch (IOException | RuntimeException e) {
                     dropConnection();
                 }
             }
@@ -200,6 +200,18 @@ public final class PollService {
                     fxResult(onResult, false, "Already authenticated as " + authedUser + " — reconnect to switch user");
                     return;
                 }
+            } catch (NutException e) {
+                // A half-done auth (USERNAME ok, PASSWORD refused) poisons the connection;
+                // drop it so the next tick reconnects clean.
+                dropConnection();
+                fxResult(onResult, false, e.code());
+                return;
+            } catch (IOException | RuntimeException e) {
+                dropConnection();
+                fxResult(onResult, false, reason(e));
+                return;
+            }
+            try {
                 enableTrackingOnce();
                 String trackingId = action.run(client);
                 if (trackingId.isEmpty()) {
@@ -209,15 +221,23 @@ public final class PollService {
                     scheduleTrackingCheck(gen, trackingId, TRACKING_ATTEMPTS, onResult);
                 }
             } catch (NutException e) {
-                // A half-done auth (USERNAME ok, PASSWORD refused) poisons the connection;
-                // drop it so the next tick reconnects clean.
-                dropConnection();
+                // upsd answered, so the stream is still in step: a refusal such as
+                // CMD-NOT-SUPPORTED leaves a healthy connection alone. Only a permissions
+                // refusal drops it, so the user can retry as someone else (one USERNAME
+                // per connection).
+                if (NutException.isAuthFailure(e.code())) {
+                    dropConnection();
+                }
                 fxResult(onResult, false, e.code());
-            } catch (IOException e) {
+            } catch (IOException | RuntimeException e) {
                 dropConnection();
-                fxResult(onResult, false, e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+                fxResult(onResult, false, reason(e));
             }
         });
+    }
+
+    private static String reason(Exception e) {
+        return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
     }
 
     /** Asks for tracking once per connection; a refusal is remembered, not retried. */
@@ -235,13 +255,15 @@ public final class PollService {
         executor.schedule(
                 () -> {
                     if (gen != generation || client == null) {
-                        fxResult(onResult, false, "Not connected");
+                        // upsd already accepted the command; only its outcome is lost with
+                        // the connection, so don't report a command that ran as a failure.
+                        fxResult(onResult, true, "OK (outcome unknown — the connection changed)");
                         return;
                     }
                     Tracking.Result result;
                     try {
                         result = client.trackingResult(id);
-                    } catch (IOException e) {
+                    } catch (IOException | RuntimeException e) {
                         dropConnection();
                         fxResult(onResult, false, e.getMessage() != null ? e.getMessage() : "tracking failed");
                         return;
@@ -304,7 +326,7 @@ public final class PollService {
             // would stop polling for good with the UI stuck on "connecting" (a port out of
             // range is enough — InetSocketAddress throws IllegalArgumentException).
             dropConnection();
-            String reason = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            String reason = reason(e);
             boolean announce = wasConnected || gen == generation;
             wasConnected = false;
             if (announce) {
