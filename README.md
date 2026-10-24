@@ -5,7 +5,7 @@
 [![CI](https://github.com/adriandeleon/nux/actions/workflows/ci.yml/badge.svg)](https://github.com/adriandeleon/nux/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/github/license/adriandeleon/nux)](LICENSE)
 ![Java](https://img.shields.io/badge/Java-25-orange?logo=openjdk&logoColor=white)
-![JavaFX](https://img.shields.io/badge/JavaFX-26-1e90ff)
+![JavaFX](https://img.shields.io/badge/JavaFX-27-1e90ff)
 ![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 [![Release](https://img.shields.io/github/v/release/adriandeleon/nux)](https://github.com/adriandeleon/nux/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/adriandeleon/nux/total)](https://github.com/adriandeleon/nux/releases)
@@ -14,7 +14,7 @@
 
 A simple, powerful, multiplatform client for
 [**Network UPS Tools**](https://networkupstools.org/) (NUT), built with **JDK 25**,
-**JavaFX 26** and **Maven**. *Nux* is Latin for "nut."
+**JavaFX 27** and **Maven**. *Nux* is Latin for "nut."
 
 Nux is a pure network client: it speaks the [NUT network
 protocol](https://networkupstools.org/docs/developer-guide.chunked/net-protocol.html)
@@ -117,7 +117,7 @@ Contributions of further languages are welcome.
 ./mvnw javafx:run
 ```
 
-Tests — pure logic plus headless UI tests (JavaFX 26's built-in headless
+Tests — pure logic plus headless UI tests (JavaFX 27's built-in headless
 platform, so no display or Xvfb is needed):
 
 ```bash

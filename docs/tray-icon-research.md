@@ -32,7 +32,7 @@ that's GNOME policy, not something a library can route around.
 | `java.awt.SystemTray` (JDK) | ✅ solid | ✅ works | ❌ XEmbed-only | Half the answer |
 | FXTrayIcon 4.2.0 (2024) | ✅ | ✅ | ❌ (AWT wrapper) | Same Linux gap, adds nothing we need |
 | dorkbox/SystemTray 4.4 | ✅ | ✅ | ✅ via GTK/AppIndicator | Rejected — see below |
-| JavaFX built-in | — | — | — | Doesn't exist (still no tray API in JavaFX 26) |
+| JavaFX built-in | — | — | — | Doesn't exist (still no tray API in JavaFX 27) |
 | **AWT + own SNI over dbus-java** | ✅ | ✅ | ✅ SNI | **Chosen** |
 
 **dorkbox/SystemTray** is the only off-the-shelf full-coverage option, but:

@@ -12,7 +12,7 @@ import javafx.application.Platform;
 /**
  * Boots the JavaFX toolkit once per JVM for the UI tests.
  *
- * <p>Runs on JavaFX 26's built-in <em>Headless</em> Glass platform (selected by the
+ * <p>Runs on JavaFX 27's built-in <em>Headless</em> Glass platform (selected by the
  * surefire system properties), so no display, no Xvfb, and — because
  * {@link Platform#startup} is all that is needed — no TestFX dependency either.
  * Tests never drive a robot; they call into the scene graph directly on the FX thread.
