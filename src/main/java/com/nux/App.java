@@ -200,8 +200,25 @@ public final class App extends Application {
 
         Scene scene = new Scene(root, 960, 720);
         scene.getStylesheets().add(App.class.getResource("/com/nux/nux.css").toExternalForm());
-        scene.getAccelerators().put(KeyCombination.keyCombination("Shortcut+Shift+P"), palette::toggle);
-        scene.getAccelerators().put(KeyCombination.keyCombination("Shortcut+Comma"), this::openSettings);
+        // Keyboard access to the whole toolbar. Avoids Cmd+H / Cmd+M, which macOS
+        // reserves for Hide and Minimize; each button's tooltip shows its shortcut.
+        shortcut(scene, "Shortcut+Shift+P", palette::toggle, null);
+        shortcut(scene, "Shortcut+Comma", this::openSettings, settingsButton);
+        shortcut(scene, "Shortcut+K", () -> connection.toggle(), connectButton);
+        shortcut(scene, "Shortcut+U", () -> {
+            if (!upsCombo.isDisabled()) {
+                upsCombo.requestFocus();
+                upsCombo.show();
+            }
+        }, upsCombo);
+        shortcut(scene, "Shortcut+Shift+C", () -> {
+            if (!commandsButton.isDisabled()) {
+                commandsButton.show();
+            }
+        }, commandsButton);
+        shortcut(scene, "Shortcut+Shift+H", this::openHistory, historyButton);
+        shortcut(scene, "Shortcut+Shift+E", this::openEvents, eventsButton);
+        shortcut(scene, "F1", this::openAbout, aboutButton);
         stage.setScene(scene);
         // The gauges are fixed-size canvases (~620 px across); below this they clip.
         stage.setMinWidth(720);
@@ -339,6 +356,24 @@ public final class App extends Application {
     private void setTrayMetric(TrayMetric metric) {
         configHolder.update(c -> c.withTrayMetric(metric.key()));
         tray.refresh();
+    }
+
+    /**
+     * Binds {@code combo} on the scene and appends it, in the platform's own notation
+     * (Ctrl+K, ⌘K), to {@code control}'s tooltip so the shortcut can be discovered.
+     */
+    private static void shortcut(Scene scene, String combo, Runnable action, javafx.scene.control.Control control) {
+        KeyCombination keys = KeyCombination.keyCombination(combo);
+        scene.getAccelerators().put(keys, action);
+        if (control == null) {
+            return;
+        }
+        javafx.scene.control.Tooltip existing = control.getTooltip();
+        String label = existing != null ? existing.getText()
+                : control instanceof javafx.scene.control.Labeled l ? l.getText()
+                : control.getAccessibleText() != null ? control.getAccessibleText() : "";
+        control.setTooltip(new javafx.scene.control.Tooltip(
+                (label == null || label.isBlank() ? "" : label + "  ") + "(" + keys.getDisplayText() + ")"));
     }
 
     private Config config() {
