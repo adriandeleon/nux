@@ -45,11 +45,18 @@ public final class SniTray implements NuxTray {
             conn.exportObject(SniMenu.PATH, menu);
             busName = "org.kde.StatusNotifierItem-" + ProcessHandle.current().pid() + "-1";
             conn.requestBusName(busName);
+            // The first registration must succeed: an item the watcher never heard of
+            // shows no icon, and close-to-tray would then strand the app with no way
+            // back. Failing here lets Trays fall back to AWT or report no tray.
             register();
             // gnome-shell restarts drop all items; re-register when the watcher returns.
             conn.addSigHandler(DBus.NameOwnerChanged.class, signal -> {
                 if (StatusNotifierWatcher.BUS_NAME.equals(signal.name) && !signal.newOwner.isEmpty()) {
-                    register();
+                    try {
+                        register();
+                    } catch (DBusException | RuntimeException e) {
+                        LOG.log(System.Logger.Level.WARNING, "SNI re-registration failed: " + e.getMessage());
+                    }
                 }
             });
         } catch (DBusException | RuntimeException e) {
@@ -58,14 +65,10 @@ public final class SniTray implements NuxTray {
         }
     }
 
-    private void register() {
-        try {
-            StatusNotifierWatcher watcher = conn.getRemoteObject(
-                    StatusNotifierWatcher.BUS_NAME, StatusNotifierWatcher.OBJECT_PATH, StatusNotifierWatcher.class);
-            watcher.RegisterStatusNotifierItem(busName);
-        } catch (DBusException | RuntimeException e) {
-            LOG.log(System.Logger.Level.WARNING, "SNI registration failed: " + e.getMessage());
-        }
+    private void register() throws DBusException {
+        StatusNotifierWatcher watcher = conn.getRemoteObject(
+                StatusNotifierWatcher.BUS_NAME, StatusNotifierWatcher.OBJECT_PATH, StatusNotifierWatcher.class);
+        watcher.RegisterStatusNotifierItem(busName);
     }
 
     @Override

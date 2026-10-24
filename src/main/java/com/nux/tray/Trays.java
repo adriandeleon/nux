@@ -20,8 +20,10 @@ public final class Trays {
         if (os.contains("linux")) {
             try {
                 return Optional.of(new SniTray(onActivate, onQuit));
-            } catch (Exception e) {
-                LOG.log(System.Logger.Level.INFO, "SNI tray unavailable: " + e.getMessage());
+            } catch (Throwable t) {
+                // Throwable, not Exception: a linkage error from the D-Bus stack must
+                // still reach the AWT fallback rather than kill tray init outright.
+                LOG.log(System.Logger.Level.INFO, "SNI tray unavailable: " + t);
             }
         }
         try {

@@ -11,6 +11,10 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BaseMultiResolutionImage;
 import java.awt.image.BufferedImage;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import com.nux.service.Notifier;
 
@@ -22,7 +26,10 @@ import com.nux.service.Notifier;
  */
 public final class AwtTray implements NuxTray {
 
+    private static final System.Logger LOG = System.getLogger(AwtTray.class.getName());
     private static final int[] ICON_SIZES = {16, 24, 32, 48};
+    /** Bounds the wait in dispose(), so a wedged EDT can't hang shutdown. */
+    private static final long DISPOSE_TIMEOUT_MS = 2000;
 
     private final SystemTray tray;
     private final TrayIcon trayIcon;
@@ -89,10 +96,28 @@ public final class AwtTray implements NuxTray {
         });
     }
 
+    /**
+     * Removes the icon and waits for it, because App.stop() calls System.exit right
+     * after: a queued removal would never run and Windows leaves a ghost icon behind
+     * until the mouse passes over it. Runs inline on the EDT (waiting on itself would
+     * deadlock) and otherwise waits a bounded time rather than invokeAndWait's forever.
+     */
     @Override
     public void dispose() {
         Notifier.setTraySink(null);
-        EventQueue.invokeLater(() -> tray.remove(trayIcon));
+        FutureTask<Void> removal = new FutureTask<>(() -> tray.remove(trayIcon), null);
+        if (EventQueue.isDispatchThread()) {
+            removal.run();
+            return;
+        }
+        EventQueue.invokeLater(removal);
+        try {
+            removal.get(DISPOSE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException | TimeoutException e) {
+            LOG.log(System.Logger.Level.WARNING, "Tray icon removal did not complete: " + e);
+        }
     }
 
     private static BaseMultiResolutionImage multiRes(TrayDisplay display) {
