@@ -81,12 +81,18 @@ jobs:
 
       - name: Package
         shell: bash
+        # Each run replaces target/dist (removeDestination), so move every installer
+        # out before the next type is built — otherwise the RPM run deletes the DEB
+        # and the release ships without one (which is what happened to 0.6.0).
         run: |
+          mkdir -p packages
+          shopt -s nullglob
           for type in ${{ matrix.types }}; do
             echo "== jpackage type $type"
             ./mvnw --batch-mode -Pdist package -DskipTests \
               -Djpackage.type="$type" \
               -Djpackage.appVersion="${{ steps.version.outputs.appver }}"
+            mv target/dist/*.deb target/dist/*.rpm target/dist/*.dmg target/dist/*.msi packages/
           done
 
       - name: Stage artifacts
@@ -94,7 +100,7 @@ jobs:
         run: |
           mkdir -p stage
           shopt -s nullglob
-          for f in target/dist/*.deb target/dist/*.rpm target/dist/*.dmg target/dist/*.msi; do
+          for f in packages/*.deb packages/*.rpm packages/*.dmg packages/*.msi; do
             ext="${f##*.}"
             cp "$f" "stage/Nux-${{ steps.version.outputs.version }}-${{ matrix.target }}.${ext}"
           done
