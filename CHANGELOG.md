@@ -4,6 +4,14 @@ All notable changes to Nux are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] - 2026-10-24
+
+### Fixed
+
+- The Linux x64 **.deb was missing from the 0.6.0 release**: building the RPM
+  in the same job deleted it. Only the arm64 .deb was published, and installing
+  it on an amd64 machine fails with every dependency "not installable".
+
 ## [0.6.0] - 2026-10-24
 
 ### Added
