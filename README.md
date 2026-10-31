@@ -29,9 +29,9 @@ It is built with the help of AI coding tools.
 (Windows). Linux and macOS are confirmed working on real hardware; the Windows
 installer builds in CI but has not been run by anyone yet.
 
-Installers are **unsigned**, so first launch needs a nudge: on macOS right-click
-the app and choose *Open* (or `xattr -d com.apple.quarantine /Applications/Nux.app`),
-and on Windows click through the SmartScreen warning. Signing is on the roadmap.
+The macOS app is signed and notarized by Apple, so it opens like any other app.
+The Windows and Linux installers are unsigned: on Windows, click through the
+SmartScreen warning on first launch.
 
 The interface speaks **six languages** — see [Languages](#languages).
 
@@ -173,6 +173,31 @@ window shows a generic icon until you register one once:
 scripts/install-dev-desktop.sh
 ```
 
+### macOS signing
+
+The release workflow's macOS legs sign the app with the **Developer ID
+Application** certificate of team `8JKSF797L8` (Adrian De Leon Saldivar), sign the
+dmg, have Apple notarize it and staple the ticket. The same certificate and API
+key sign Editora, Torrenta, Termina and Modula.
+
+- **Import signing certificate (macOS)** puts the `.p12` into a throw-away keychain
+  and writes jpackage's signing options to an @file: `--mac-sign`, the identity,
+  that keychain and `packaging/macos/Nux.entitlements` (JIT only; library
+  validation stays on, since every native library Nux loads is in the signed
+  runtime). Package passes it as `-Djpackage.signArgs`, which the pom hands to the
+  plugin's `additionalOptions`; everywhere else it is empty and skipped. On a tag,
+  missing secrets fail the leg.
+- **Notarize the dmg (macOS)** signs the dmg, checks the app inside it, runs
+  `notarytool submit --wait`, staples, checks both with `spctl`, and starts the
+  notarized app, which must still be running 20 seconds later.
+
+Repository secrets, the same values as the other apps: `MACOS_CERT_P12` (base64 of
+a `.p12` with the certificate, its key and Apple's Developer ID G2 intermediate,
+exported with `openssl pkcs12 -export -legacy`), `MACOS_CERT_PASSWORD`,
+`APPLE_API_KEY_P8` (base64 of the team API key, Developer role), `APPLE_API_KEY_ID`
+and `APPLE_API_ISSUER`. The certificate expires **2027-11-30** and the Apple
+Developer Program membership **2027-10-31**.
+
 ## Setting up the NUT server (Linux, CyberPower over USB)
 
 Nux talks to a NUT server; it does not talk to the UPS itself. If you don't have
@@ -255,8 +280,7 @@ server, which is why there's deliberately no UI checkbox for it.
       `closeToTray=false` restores plain close-means-quit)
 - [x] Release CI: a `v*` tag builds DEB/RPM (Linux x64), DEB (Linux arm64),
       DMG (macOS x64 + arm64), MSI (Windows) and attaches them, with
-      checksums, to a GitHub release (`.github/workflows/release.yml`;
-      installers are unsigned — signing/notarization is a follow-up)
+      checksums, to a GitHub release (`.github/workflows/release.yml`)
 - [x] Windows notifications (via the tray icon — Windows has no `notify-send`
       equivalent)
 - [x] Start at login, and single-instance (a second launch raises the running
@@ -267,8 +291,8 @@ server, which is why there's deliberately no UI checkbox for it.
 - [x] Light theme (follows the system), tray quick actions, per-UPS notification
       rules, keyboard shortcuts for the toolbar
 - [x] Watch several saved servers at once
-- [ ] Signed and notarised installers (needs an Apple Developer ID and a
-      Windows code-signing certificate)
+- [x] Signed and notarized macOS dmgs (see [macOS signing](#macos-signing))
+- [ ] Signed Windows installer (needs a Windows code-signing certificate)
 - [ ] Package-manager distribution (Homebrew cask, winget, Flatpak/AppImage)
 
 ## Project files
