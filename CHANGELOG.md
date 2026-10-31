@@ -4,6 +4,15 @@ All notable changes to Nux are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **The macOS app is signed and notarized.** Both dmgs (Apple silicon and Intel)
+  are now signed with a Developer ID certificate and notarized by Apple, so Nux
+  opens on first launch with no Gatekeeper warning. The Windows and Linux
+  installers are still unsigned.
+
 ## [0.6.1] - 2026-10-24
 
 ### Fixed

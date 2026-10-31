@@ -38,8 +38,8 @@ but have never been exercised against real hardware or a real server configurati
 
 ## Distribution
 
-- [ ] Sign and notarise the macOS DMG; sign the Windows MSI. Both currently warn the
-      user on first launch.
+- [ ] Sign the Windows MSI; it warns the user on first launch. (The macOS DMG is
+      signed and notarized: README, "macOS signing".)
 - [ ] Linux portable formats: AppImage and/or a tarball, plus a Flatpak manifest.
 - [ ] Derive the Homebrew cask / winget manifest from the release assets.
 

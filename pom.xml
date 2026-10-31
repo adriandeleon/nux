@@ -25,6 +25,9 @@
 
         <!-- jpackage icon format is per-OS; the os-* profiles below override this. -->
         <jpackage.icon>${project.basedir}/branding/nux.png</jpackage.icon>
+        <!-- jpackage signing options as an @file, or nothing (the plugin skips an empty option).
+             A macOS release leg points this at the Developer ID options release.yml writes. -->
+        <jpackage.signArgs></jpackage.signArgs>
 
         <!-- Baked into build-info.properties for the About window. The indirection is the
              standard workaround for maven.build.timestamp not being filtered directly. -->
@@ -319,6 +322,11 @@
                                          "UpgradeCode/<vendor>/<name>"), pinned so that renaming the
                                          vendor or app can't silently change it. -->
                                     <winUpgradeUuid>76de9bd5-010c-3a83-84fa-6223cd5b3a32</winUpgradeUuid>
+                                    <!-- Developer ID signing on a macOS release (see jpackage.signArgs
+                                         and release.yml); an empty option, so nothing, otherwise. -->
+                                    <additionalOptions>
+                                        <option>${jpackage.signArgs}</option>
+                                    </additionalOptions>
                                 </configuration>
                             </execution>
                         </executions>
