@@ -6,12 +6,19 @@ All notable changes to Nux are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **A `.tar.gz` for Linux x64 and arm64**: the portable app, which runs without
+  installing anything or needing root. Unpack it and run `Nux/bin/Nux`.
+
 ### Changed
 
 - **The macOS app is signed and notarized.** Both dmgs (Apple silicon and Intel)
   are now signed with a Developer ID certificate and notarized by Apple, so Nux
   opens on first launch with no Gatekeeper warning. The Windows and Linux
   installers are still unsigned.
+- The checksum file attached to each release is now **`checksums_sha256.txt`**
+  (was `checksums.txt`), the same name the other apps use.
 
 ## [0.6.1] - 2026-10-24
 

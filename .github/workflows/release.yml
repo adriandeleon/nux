@@ -20,10 +20,10 @@ jobs:
         include:
           - os: ubuntu-latest
             target: linux-x64
-            types: "DEB RPM"
+            types: "APP_IMAGE DEB RPM"
           - os: ubuntu-24.04-arm
             target: linux-arm64
-            types: "DEB"
+            types: "APP_IMAGE DEB"
           - os: macos-latest
             target: macos-arm64
             types: "DMG"
@@ -151,6 +151,9 @@ jobs:
         # out before the next type is built — otherwise the RPM run deletes the DEB
         # and the release ships without one (which is what happened to 0.6.0).
         # On a signing macOS leg jpackage also signs the app (see the step above).
+        #
+        # On Linux the plain app image is shipped too, as a tar.gz whose Nux/bin/Nux starts it:
+        # it installs without root, which is what the app catalog's installers unpack.
         run: |
           mkdir -p packages
           shopt -s nullglob
@@ -160,7 +163,11 @@ jobs:
               -Djpackage.type="$type" \
               -Djpackage.appVersion="${{ steps.version.outputs.appver }}" \
               ${NUX_JPACKAGE_SIGN_ARGS:+"-Djpackage.signArgs=@$NUX_JPACKAGE_SIGN_ARGS"}
-            mv target/dist/*.deb target/dist/*.rpm target/dist/*.dmg target/dist/*.msi packages/
+            if [ "$type" = APP_IMAGE ]; then
+              tar -C target/dist -czf packages/Nux.tar.gz Nux
+            else
+              mv target/dist/*.deb target/dist/*.rpm target/dist/*.dmg target/dist/*.msi packages/
+            fi
           done
 
       # The dmg gets its own signature (jpackage signs only the app inside it), then Apple scans it
@@ -269,8 +276,11 @@ jobs:
         run: |
           mkdir -p stage
           shopt -s nullglob
-          for f in packages/*.deb packages/*.rpm packages/*.dmg packages/*.msi; do
-            ext="${f##*.}"
+          for f in packages/*.tar.gz packages/*.deb packages/*.rpm packages/*.dmg packages/*.msi; do
+            case "$f" in
+              *.tar.gz) ext=tar.gz ;;
+              *) ext="${f##*.}" ;;
+            esac
             cp "$f" "stage/Nux-${{ steps.version.outputs.version }}-${{ matrix.target }}.${ext}"
           done
           ls -la stage/
@@ -300,11 +310,13 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      # checksums_sha256.txt is the name the app catalog expects, and JReleaser's default, which
+      # is what Termina, Editora and Torrenta ship.
       - name: Checksums
         run: |
           cd artifacts
-          sha256sum * > checksums.txt
-          cat checksums.txt
+          sha256sum * > checksums_sha256.txt
+          cat checksums_sha256.txt
 
       - uses: softprops/action-gh-release@v3
         with:
@@ -314,3 +326,25 @@ jobs:
           # A -rc/-beta tag is a pre-release. The in-app update check refuses
           # pre-releases, so this flag is what keeps users from being offered one.
           prerelease: ${{ contains(github.ref_name, '-') }}
+
+  # Asks the app catalog to rebuild now rather than at its daily run. Needs CATALOG_TOKEN, a
+  # fine-grained token with Contents read/write on adriandeleon/instala-catalog. Without it, or if
+  # the call fails, the release is unaffected and the catalog picks it up within a day.
+  notify-catalog:
+    needs: release
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions: {}
+    steps:
+      - name: Send repository_dispatch
+        env:
+          GH_TOKEN: ${{ secrets.CATALOG_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::notice::CATALOG_TOKEN is not set; the catalog picks this release up at its daily rebuild"
+            exit 0
+          fi
+          gh api repos/adriandeleon/instala-catalog/dispatches \
+            -f event_type=app-released \
+            -f "client_payload[repo]=${{ github.repository }}" \
+            -f "client_payload[tag]=${{ github.ref_name }}"

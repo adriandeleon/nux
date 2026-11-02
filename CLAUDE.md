@@ -242,8 +242,10 @@ derives it from the module main class, *not* the app name — verified with
   whose first number is 0** — release.yml bumps `0.x.y` → `1.x.y` for the
   bundle metadata on the mac legs only.
 - Release: push a `v*` tag → `.github/workflows/release.yml` (5-runner matrix,
-  no cross-building) builds DEB/RPM/DMG/MSI and publishes a GitHub release
-  with checksums. The per-OS jpackage icon (`png`/`ico`/`icns`, all emitted by
+  no cross-building) builds DEB/RPM/DMG/MSI plus a Linux app-image tar.gz and
+  publishes a GitHub release with `checksums_sha256.txt`. File names and the
+  `.instala.yml` manifest follow the app catalog's spec. The per-OS jpackage
+  icon (`png`/`ico`/`icns`, all emitted by
   `scripts/gen_icon.java`) is picked by OS-activated `os-*` Maven profiles.
 
 ## Why not jNut?
