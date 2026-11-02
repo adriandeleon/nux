@@ -25,8 +25,9 @@ Nux is an independent client, not affiliated with or endorsed by the NUT project
 It is built with the help of AI coding tools.
 
 📥 **Downloads:** [latest release](https://github.com/adriandeleon/nux/releases/latest)
-— `.deb` / `.rpm` (Linux x64 + arm64), `.dmg` (macOS Intel + Apple silicon), `.msi`
-(Windows). Linux and macOS are confirmed working on real hardware; the Windows
+— `.deb` (Linux x64 + arm64), `.rpm` (Linux x64), `.tar.gz` (Linux x64 + arm64,
+no root needed: unpack it and run `Nux/bin/Nux`), `.dmg` (macOS Intel + Apple silicon),
+`.msi` (Windows). Verify a download against `checksums_sha256.txt`. Linux and macOS are confirmed working on real hardware; the Windows
 installer builds in CI but has not been run by anyone yet.
 
 The macOS app is signed and notarized by Apple, so it opens like any other app.
@@ -278,8 +279,8 @@ server, which is why there's deliberately no UI checkbox for it.
       SNI tooltips (KDE shows them)
 - [x] Close-to-tray (window close hides; tray-menu Quit exits;
       `closeToTray=false` restores plain close-means-quit)
-- [x] Release CI: a `v*` tag builds DEB/RPM (Linux x64), DEB (Linux arm64),
-      DMG (macOS x64 + arm64), MSI (Windows) and attaches them, with
+- [x] Release CI: a `v*` tag builds DEB/RPM/tar.gz (Linux x64), DEB/tar.gz (Linux
+      arm64), DMG (macOS x64 + arm64), MSI (Windows) and attaches them, with
       checksums, to a GitHub release (`.github/workflows/release.yml`)
 - [x] Windows notifications (via the tray icon — Windows has no `notify-send`
       equivalent)
